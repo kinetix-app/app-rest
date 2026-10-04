@@ -1,0 +1,1 @@
+"""Kinetix backend application package."""
