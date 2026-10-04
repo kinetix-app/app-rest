@@ -43,6 +43,8 @@ uv run --locked pytest -m 'not integration'
 
 For the full suite, start the dedicated test service and pass its explicit URL as documented in the README. Integration tests must target a database ending in `_test`, and use only test-owned records/tables. Add meaningful permission, calculation, persistence and failure cases with their consuming features.
 
-For configuration/packaging changes, verify host and container modes, health failure/recovery, explicit migrations, data-volume persistence, graceful shutdown and cache reuse as applicable. Future quality pipelines reuse the local checks. Report executed checks, results and unverified behavior accurately; infrastructure probes establish infrastructure evidence, while feature delivery requires its own demonstration.
+The pull-request workflow in `.github/workflows/ci.yml` runs Ruff lint/format checks and the complete pytest suite with an isolated, health-checked PostgreSQL service. Keep its uv/Python pins, locked synchronization and database image aligned with local commands and Compose. Preserve immutable action pins and read-only permissions when editing CI.
+
+For configuration/packaging changes, verify host and container modes, health failure/recovery, explicit migrations, data-volume persistence, graceful shutdown and cache reuse as applicable. Report executed checks, results and unverified behavior accurately; infrastructure probes establish infrastructure evidence, while feature delivery requires its own demonstration.
 
 Keep README.md and this file synchronized with actual conventions, commands and structure. Inspect changed files before handoff. State what changed, why, verification results and remaining decisions. Respect the authorized repository/publication scope and keep local credentials, uploaded media, database dumps and personal tool state outside tracked content.

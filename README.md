@@ -106,7 +106,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1
 
 Use the configured test port in the URL if changed. The test service has its own container, database and volume. Without `TEST_DATABASE_URL`, PostgreSQL tests are explicitly skipped. With it, the suite verifies real readiness, committed data across engine disposal, transaction rollback and Alembic bootstrap/metadata consistency. Integration tests create and remove only test-owned tables.
 
-Add dependencies with `uv add <package>` or `uv add --group dev <package>` and commit `pyproject.toml` together with `uv.lock`. Apply formatting with `uv run --locked ruff format .`. These local commands are the baseline for future convention-enforcement pipelines.
+Add dependencies with `uv add <package>` or `uv add --group dev <package>` and commit `pyproject.toml` together with `uv.lock`. Apply formatting with `uv run --locked ruff format .`.
 
 For each implemented schema change, import its models into the Alembic environment, then generate and review the candidate revision:
 
@@ -117,6 +117,17 @@ uv run --locked alembic check
 ```
 
 Feature revisions belong in `migrations/versions/`. The foundation starts with empty domain metadata; upgrading currently initializes Alembic's version tracking. Add the initial product schema with the first agreed feature. Review constraints, renames, data changes and applicable upgrade paths.
+
+## Pull-request CI
+
+The [CI workflow](.github/workflows/ci.yml) runs on every pull request, with two independent checks:
+
+- **Lint and format:** Ruff linting and formatting verification.
+- **Tests:** the complete pytest suite, including integration tests against an isolated, health-checked PostgreSQL service matching the Compose image.
+
+Both jobs install uv 0.12.13, use Python from `.python-version`, cache dependencies and synchronize with `uv sync --locked --group dev`. An outdated lockfile fails synchronization. The test job supplies `TEST_DATABASE_URL` for its temporary `fitness_test` database. Actions are pinned to release commits, workflow permissions are read-only and new commits cancel superseded runs for the same PR.
+
+Run the checks above before requesting review. Keep CI commands, version pins and the PostgreSQL image aligned with local development. Repository branch rules can require **Lint and format** and **Tests** to pass before merging.
 
 ## Service health and troubleshooting
 
