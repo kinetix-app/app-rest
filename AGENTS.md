@@ -25,6 +25,7 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 
 - Use uv for dependency management and commands. Commit manifest and lockfile changes together. The README is the setup/command reference.
 - Compose runs PostgreSQL dependencies; host uv/Uvicorn is the default development mode and the `app` profile runs the packaged API. Use host published ports versus Compose service names correctly.
+- An optional `sonar` profile runs a local SonarQube Community server for pre-push analysis through `scripts/sonar-scan.sh`; it uses the embedded database and named volumes and is not part of CI.
 - Add dependency services alongside consuming features. Use dependency-native health checks and healthy-startup conditions, with bounded API liveness/readiness behavior and failure/recovery verification.
 - Maintain cached multi-stage builds, compatible Python/OS/runtime paths, a slim non-root runtime and an appropriately scoped Docker build context. Verify runtime contents and cache reuse after packaging changes.
 - WebSocket work authenticates/checks membership, persists actual training changes and defines reconnect/resync. Choose shared event infrastructure before increasing socket-serving workers. Use short per-operation database sessions.
@@ -43,7 +44,7 @@ uv run --locked pytest -m 'not integration'
 
 For the full suite, start the dedicated test service and pass its explicit URL as documented in the README. Integration tests must target a database ending in `_test`, and use only test-owned records/tables. Add meaningful permission, calculation, persistence and failure cases with their consuming features.
 
-The pull-request workflow in `.github/workflows/ci.yml` runs Ruff lint/format checks and the complete pytest suite with an isolated, health-checked PostgreSQL service. Keep its uv/Python pins, locked synchronization and database image aligned with local commands and Compose. Preserve immutable action pins and read-only permissions when editing CI.
+The pull-request workflow in `.github/workflows/ci.yml` runs Ruff lint/format checks, the complete pytest suite with an isolated, health-checked PostgreSQL service, and an advisory SonarCloud scan consuming the uploaded coverage report. Keep its uv/Python pins, locked synchronization, database image and SonarCloud action pin aligned with local commands and Compose. Preserve immutable action pins and read-only permissions when editing CI.
 
 For configuration/packaging changes, verify host and container modes, health failure/recovery, explicit migrations, data-volume persistence, graceful shutdown and cache reuse as applicable. Report executed checks, results and unverified behavior accurately; infrastructure probes establish infrastructure evidence, while feature delivery requires its own demonstration.
 
