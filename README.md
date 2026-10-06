@@ -154,15 +154,15 @@ The `sonar` Compose profile runs a local SonarQube Community server for pre-push
 
 Use a different `SONAR_PORT` in `.env` if 9000 is taken. On native Linux, SonarQube's Elasticsearch needs `vm.max_map_count` of at least 262144; Docker Desktop handles this. Removing the SonarQube volumes deletes all local analysis history.
 
-## Pull-request CI
+## CI
 
-The [CI workflow](.github/workflows/ci.yml) runs on every pull request and on pushes to `master`, with three independent checks:
+The [CI workflow](.github/workflows/ci.yml) runs on every pull request, on pushes to a branch that has an open pull request (the pull-request `synchronize` event) and on pushes to `master`, with three independent checks:
 
 - **Lint and format:** Ruff linting and formatting verification.
 - **Tests:** the complete pytest suite with coverage, including integration tests against an isolated, health-checked PostgreSQL service matching the Compose image.
 - **SonarCloud:** uploads the analysis and coverage report to SonarCloud. This check is advisory: it reports the quality gate without failing the build.
 
-All jobs install uv 0.12.13, use Python from `.python-version`, cache dependencies and synchronize with `uv sync --locked --group dev`. An outdated lockfile fails synchronization. The test job supplies `TEST_DATABASE_URL` for its temporary `fitness_test` database and uploads `coverage.xml`; the SonarCloud job checks out the full history (`fetch-depth: 0`) and downloads that report. Actions are pinned to release commits, workflow permissions are read-only and new commits cancel superseded runs for the same PR.
+All jobs install uv 0.12.13, use Python from `.python-version`, cache dependencies and synchronize with `uv sync --locked --group dev`. An outdated lockfile fails synchronization. The test job supplies `TEST_DATABASE_URL` for its temporary `fitness_test` database and uploads `coverage.xml`; the SonarCloud job checks out the full history (`fetch-depth: 0`) and downloads that report. Pull-request runs are analyzed in the pull-request context and the source branch is passed explicitly as `sonar.pullrequest.branch`, so each analysis identifies the branch it came from; pushes to `master` update the project's main branch. Actions are pinned to release commits, workflow permissions are read-only and new commits cancel superseded runs for the same PR.
 
 ### SonarCloud setup
 
