@@ -12,11 +12,11 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
 WORKDIR /build
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-project
+    uv sync --locked --no-dev --no-install-project --no-build
 COPY app ./app
 COPY README.md ./README.md
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-dev --no-editable --no-build
 
 FROM base AS runtime
 RUN groupadd --gid 10001 app \
