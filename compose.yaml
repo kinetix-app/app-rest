@@ -62,6 +62,25 @@ services:
       start_period: 10s
       retries: 10
 
+  sonarqube:
+    profiles: [sonar]
+    image: sonarqube:community@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    ports:
+      - "127.0.0.1:${SONAR_PORT:-9000}:9000"
+    volumes:
+      - sonarqube-data:/opt/sonarqube/data
+      - sonarqube-extensions:/opt/sonarqube/extensions
+      - sonarqube-logs:/opt/sonarqube/logs
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
 volumes:
   postgres-data:
   postgres-test-data:
+  sonarqube-data:
+  sonarqube-extensions:
+  sonarqube-logs:

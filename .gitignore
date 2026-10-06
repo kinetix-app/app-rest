@@ -6,7 +6,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.scannerwork/
 .coverage
+coverage.xml
 htmlcov/
 dist/
 build/
