@@ -41,10 +41,10 @@ jobs:
         run: uv sync --locked --group dev --no-build
 
       - name: Check lint
-        run: uv run --locked ruff check .
+        run: uv run --locked --no-build ruff check .
 
       - name: Check formatting
-        run: uv run --locked ruff format --check .
+        run: uv run --locked --no-build ruff format --check .
 
   tests:
     name: Tests
@@ -90,7 +90,7 @@ jobs:
       - name: Run unit and PostgreSQL integration tests
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:5432/fitness_test
-        run: uv run --locked pytest --cov=. --cov-report=xml --no-build
+        run: uv run --locked --no-build pytest --cov=. --cov-report=xml
 
       - name: Upload coverage report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

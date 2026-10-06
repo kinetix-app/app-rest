@@ -34,7 +34,7 @@ until curl -fsS "${sonar_host_url}/api/system/status" 2>/dev/null | grep -q '"st
 done
 
 echo "Running tests with coverage..."
-uv run --locked pytest -m 'not integration' --cov=. --cov-report=xml "$@"
+uv run --locked --no-build pytest -m 'not integration' --cov=. --cov-report=xml "$@"
 
 echo "Running SonarScanner..."
 docker run --rm \

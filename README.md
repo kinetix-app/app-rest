@@ -43,13 +43,13 @@ Install uv and Docker with Compose v2 supporting `--wait`. Run commands from the
    ```sh
    docker compose up -d --wait postgres
    uv sync --locked --no-build
-   uv run --locked alembic upgrade head
+   uv run --locked --no-build alembic upgrade head
    ```
 
 3. Start the development server:
 
    ```sh
-   uv run --locked uvicorn app.main:app --reload --no-access-log
+   uv run --locked --no-build uvicorn app.main:app --reload --no-access-log
    ```
 
 Open [API docs](http://127.0.0.1:8000/docs). `/health/live` returns 200 when the API responds. `/health/ready` performs a bounded PostgreSQL query and returns 200 or 503. Application request logs include generated request IDs, route templates, status and duration; query strings and bodies are kept out of those logs.
@@ -96,28 +96,28 @@ The Dockerfile installs runtime dependencies in a cached builder layer before co
 
 ```sh
 uv lock --check
-uv run --locked ruff check .
-uv run --locked ruff format --check .
-uv run --locked pytest -m 'not integration'
+uv run --locked --no-build ruff check .
+uv run --locked --no-build ruff format --check .
+uv run --locked --no-build pytest -m 'not integration'
 ```
 
 Run the complete suite against the dedicated test service:
 
 ```sh
 docker compose up -d --wait postgres-test
-TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test uv run --locked pytest
+TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test uv run --locked --no-build pytest
 ```
 
 Use the configured test port in the URL if changed. The test service has its own container, database and volume. Without `TEST_DATABASE_URL`, PostgreSQL tests are explicitly skipped. With it, the suite verifies real readiness, committed data across engine disposal, transaction rollback and Alembic bootstrap/metadata consistency. Integration tests create and remove only test-owned tables.
 
-Add dependencies with `uv add <package>` or `uv add --group dev <package>` and commit `pyproject.toml` together with `uv.lock`. Apply formatting with `uv run --locked ruff format .`.
+Add dependencies with `uv add <package>` or `uv add --group dev <package>` and commit `pyproject.toml` together with `uv.lock`. Apply formatting with `uv run --locked --no-build ruff format .`.
 
 For each implemented schema change, import its models into the Alembic environment, then generate and review the candidate revision:
 
 ```sh
-uv run --locked alembic revision --autogenerate -m "describe schema change"
-uv run --locked alembic upgrade head
-uv run --locked alembic check
+uv run --locked --no-build alembic revision --autogenerate -m "describe schema change"
+uv run --locked --no-build alembic upgrade head
+uv run --locked --no-build alembic check
 ```
 
 Feature revisions belong in `migrations/versions/`. The foundation starts with empty domain metadata; upgrading currently initializes Alembic's version tracking. Add the initial product schema with the first agreed feature. Review constraints, renames, data changes and applicable upgrade paths.

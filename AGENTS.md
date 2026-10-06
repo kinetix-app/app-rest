@@ -37,9 +37,9 @@ Standard checks:
 
 ```sh
 uv lock --check
-uv run --locked ruff check .
-uv run --locked ruff format --check .
-uv run --locked pytest -m 'not integration'
+uv run --locked --no-build ruff check .
+uv run --locked --no-build ruff format --check .
+uv run --locked --no-build pytest -m 'not integration'
 ```
 
 For the full suite, start the dedicated test service and pass its explicit URL as documented in the README. Integration tests must target a database ending in `_test`, and use only test-owned records/tables. Add meaningful permission, calculation, persistence and failure cases with their consuming features.
