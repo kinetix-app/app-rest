@@ -155,7 +155,7 @@ The `sonar` Compose profile runs a local SonarQube Community server for pre-push
    ./scripts/sonar-scan.sh
    ```
 
-   The script waits for the server, runs `pytest` with a `coverage.xml` report, then runs the pinned SonarScanner container against the local server. It waits up to 300 seconds for the submitted background task to succeed before printing completion; a failed, canceled or timed-out task fails the command. Open the printed dashboard URL to review issues. Extra arguments are passed to pytest, for example `./scripts/sonar-scan.sh -m integration` after starting the test service.
+   The script waits for the server, runs `pytest` with a `coverage.xml` report, then runs the pinned SonarScanner container against the local server. It waits up to 300 seconds for the submitted background task to succeed, fetches unresolved findings to `/tmp/sonar-issues.json`, then prints completion. A failed, canceled or timed-out task or issue fetch fails the command. Set `SONAR_ISSUES_OUTPUT` to change the issue file path. Open the printed dashboard URL to review issues. Extra arguments are passed to pytest, for example `./scripts/sonar-scan.sh -m integration` after starting the test service.
 
 3. Stop the server while keeping its data:
 

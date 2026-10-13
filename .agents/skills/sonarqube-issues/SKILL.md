@@ -15,10 +15,9 @@ For local SonarQube, analyze the current checkout first:
 
 ```sh
 ./scripts/sonar-scan.sh
-python3 scripts/fetch_sonar_issues.py --source local --output /tmp/sonar-issues.json
 ```
 
-The scan runs tests with coverage and waits for SonarQube processing to succeed. Use the repository's required uv version; see [README.md](../../../README.md). If execution is blocked, report the failed command and required access (Docker socket, local API or uv cache); do not interpret permission errors as a stopped server.
+The scan runs tests with coverage, waits for SonarQube processing, and saves unresolved findings to `/tmp/sonar-issues.json`. Set `SONAR_ISSUES_OUTPUT` to change the path. Use the repository's required uv version; see [README.md](../../../README.md). If execution is blocked, report the failed command and required access; do not interpret permission errors as a stopped server.
 
 For SonarCloud:
 

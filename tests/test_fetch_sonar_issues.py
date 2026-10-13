@@ -10,7 +10,8 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/fetch_sonar_issues.py"
 spec = importlib.util.spec_from_file_location("fetch_sonar_issues", SCRIPT)
-assert spec is not None and spec.loader is not None
+assert spec is not None
+assert spec.loader is not None
 sonar = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sonar)
 

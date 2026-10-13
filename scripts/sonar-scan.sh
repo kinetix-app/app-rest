@@ -52,4 +52,9 @@ docker run --rm \
 echo "Waiting for SonarQube to process the submitted analysis..."
 uv run --locked --no-build python scripts/fetch_sonar_issues.py --source local --wait-only
 
+issues_output="${SONAR_ISSUES_OUTPUT:-/tmp/sonar-issues.json}"
+echo "Fetching unresolved SonarQube issues to ${issues_output}..."
+uv run --locked --no-build python scripts/fetch_sonar_issues.py \
+  --source local --output "${issues_output}"
+
 echo "Analysis complete: ${sonar_host_url}/dashboard?id=kinetix-backend"
