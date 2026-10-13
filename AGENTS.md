@@ -4,7 +4,7 @@ Read [README.md](README.md), the user's task, its issue/acceptance criteria when
 
 ## Context and workflow
 
-The repository contains the initialized FastAPI foundation, configuration, PostgreSQL resources, Alembic environment, health routes, Docker packaging and tests. Product features develop through the GitHub backlog. Verify actual implementation before reporting completion.
+The repository contains the initialized FastAPI foundation, configuration, PostgreSQL resources, Alembic environment, health routes, Docker packaging and tests. Clerk bearer-session authentication and the local accounts/profile feature are implemented under ACC01; provider/native setup remains outstanding. See [authentication runbook](docs/authentication.md). Product features develop through the GitHub backlog. Verify actual implementation before reporting completion.
 
 GitHub issues are the task/status source and the GitHub Project is the planning view. Publication configuration is pending. Use verified issue references when available and keep reported work factual. The management repository owns product scope, sprint commitments, diagrams and decisions; this repository owns executable services/migrations and runtime onboarding. Documentation is English and links remain within the repository or use verified external URLs.
 
@@ -18,6 +18,7 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 - Inject identity, settings and sessions. Use application lifespan for pooled resource creation/disposal. One session per request/use case; each concurrent task gets its own session. Load relationships needed for serialization explicitly.
 - Services define successful commit and failure rollback boundaries. Await async I/O, move blocking computation behind an appropriate execution boundary, and finish database transactions before slow provider calls.
 - Add schema changes through manually reviewed Alembic revisions in `migrations/versions/`, with database constraints and feature model imports in `migrations/env.py`. Verify clean setup and applicable upgrades.
+- Protected routes use `CurrentUser` from `app/core/auth/dependencies.py`; it validates a Clerk session before resolving an active local UUID. Reuse this dependency for owned features, never request-body identities. Keep provider network calls outside database transactions.
 - Derive identity/ownership from authentication, authorize resource operations and cover two-account isolation with owned features. Account work defines session expiration and logout/revocation.
 - Use deterministic nutrition/league/progress calculations, documented precision/rounding, explicit units and timezone-aware event handling. Separate templates, completed activities and membership; reuse activity references and preserve community-copy provenance.
 

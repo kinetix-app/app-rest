@@ -2,7 +2,7 @@
 
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.
 
-The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, a packaged Docker image and tests. Feature schemas and API contracts evolve through the GitHub backlog.
+The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Other feature schemas evolve through the GitHub backlog.
 
 ## Start here
 
@@ -19,6 +19,9 @@ Python **3.14.6**, uv **0.12.13** (supported local range: 0.12.x), FastAPI, Pyda
 | `app/main.py` | Application factory, lifespan and safe request logging |
 | `app/core/` | Typed environment settings and logging configuration |
 | `app/api/` | Health endpoints and `/api/v1` router composition |
+| `app/core/auth/` | Clerk key cache, token verification and current-user dependency |
+| `app/features/accounts/` | Account models, private schemas, provisioning and profile routes |
+| `docs/authentication.md` | Clerk configuration runbook and account/session contract |
 | `app/db/` | ORM metadata, engine and request session dependency |
 | `migrations/` | Alembic environment, templates and feature revisions |
 | `tests/` | Configuration, health/lifecycle and PostgreSQL integration checks |
@@ -27,6 +30,12 @@ Python **3.14.6**, uv **0.12.13** (supported local range: 0.12.x), FastAPI, Pyda
 | `sonar-project.properties` | Shared SonarQube/SonarCloud analysis configuration |
 
 Implement feature packages under `app/features/` as their tasks are delivered. Keep routers thin, use-case logic and transactions in services, and request/private/public response schemas separate from persistence models.
+
+## Authentication setup
+
+Follow [Clerk dashboard and backend setup](docs/authentication.md) to finish configuring Google, Apple and Email OTP, set `CLERK_ISSUER`, apply the account migration and exercise the private APIs. The backend validates Clerk session tokens and atomically provisions an internal user UUID on first valid access. `GET /api/v1/me` reads/bootstrap the account; `PATCH /api/v1/me/profile` edits display name/timezone.
+
+Without a Clerk issuer, development/test health routes still work and bearer-authenticated feature requests return 503; production startup requires an issuer. No provider tenant has been configured by this implementation. Native sign-in, session/logout integration, linking and deletion synchronization remain outstanding under [ACC01](https://github.com/kinetix-app/app-rest/issues/1).
 
 ## Develop with Compose dependencies and a host API
 
