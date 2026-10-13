@@ -1,8 +1,9 @@
 """Typed environment configuration without import-time database connections."""
 
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
@@ -22,6 +23,38 @@ class Settings(BaseSettings):
     postgres_host: str = Field(default="127.0.0.1", min_length=1)
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     database_timeout_seconds: float = Field(default=2, gt=0, le=30)
+
+    clerk_issuer: str | None = None
+    clerk_authorized_parties: list[str] = Field(default_factory=list)
+    clerk_audience: str | None = None
+    clerk_clock_skew_seconds: int = Field(default=5, ge=0, le=30)
+    clerk_jwks_cache_seconds: int = Field(default=300, ge=30, le=3600)
+    clerk_timeout_seconds: float = Field(default=5, gt=0, le=10)
+
+    @field_validator("clerk_issuer", "clerk_audience", mode="before")
+    @classmethod
+    def empty_auth_setting(cls, value: str | None) -> str | None:
+        return None if value == "" else value
+
+    @model_validator(mode="after")
+    def validate_authentication_configuration(self) -> Self:
+        if self.clerk_issuer is not None:
+            url = urlsplit(self.clerk_issuer)
+            if (
+                url.scheme != "https"
+                or not url.hostname
+                or url.username
+                or url.password
+                or url.query
+                or url.fragment
+                or url.path not in ("", "/")
+                or len(self.clerk_issuer) > 512
+            ):
+                raise ValueError("CLERK_ISSUER must be an HTTPS origin without credentials")
+            self.clerk_issuer = self.clerk_issuer.rstrip("/")
+        if self.app_env == "production" and not self.clerk_issuer:
+            raise ValueError("CLERK_ISSUER is required in production")
+        return self
 
     @model_validator(mode="after")
     def validate_database_configuration(self) -> Self:
