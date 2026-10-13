@@ -37,12 +37,19 @@ echo "Running tests with coverage..."
 uv run --locked --no-build pytest -m 'not integration' --cov=. --cov-report=xml "$@"
 
 echo "Running SonarScanner..."
+# A failed scanner must not leave a previous task available for verification.
+mkdir -p .scannerwork
+rm -f .scannerwork/report-task.txt
 docker run --rm \
   --add-host=host.docker.internal:host-gateway \
   -e SONAR_HOST_URL="http://host.docker.internal:${sonar_port}" \
   -e SONAR_TOKEN="${SONAR_TOKEN}" \
   -v "${repo_root}:/usr/src" \
   -w /usr/src \
-  "${scanner_image}"
+  "${scanner_image}" \
+  -Dsonar.scanner.metadataFilePath=/usr/src/.scannerwork/report-task.txt
+
+echo "Waiting for SonarQube to process the submitted analysis..."
+uv run --locked --no-build python scripts/fetch_sonar_issues.py --source local --wait-only
 
 echo "Analysis complete: ${sonar_host_url}/dashboard?id=kinetix-backend"

@@ -82,6 +82,8 @@ Open [API docs](http://127.0.0.1:8000/docs). `/health/live` returns 200 when the
 | `TEST_DATABASE_URL` | Explicit integration-test connection URL, with database name ending in `_test` |
 | `SONAR_PORT` | Optional local SonarQube host port, default 9000 |
 | `SONAR_TOKEN` | Local SonarQube authentication token; required by `scripts/sonar-scan.sh` |
+| `SONAR_CLOUD_TOKEN` | Optional SonarCloud token used by the `sonarqube-issues` skill |
+| `SONAR_ORGANIZATION` | SonarCloud organization key used by the `sonarqube-issues` skill; defaults to `kinetix-app` in `.env.example` |
 
 The component settings construct database URLs safely when passwords contain reserved characters. Encode credentials when providing a complete URL. Compose explicitly supplies component settings to its API service; host `DATABASE_URL` overrides remain local. Keep credentials outside version control.
 
@@ -153,7 +155,7 @@ The `sonar` Compose profile runs a local SonarQube Community server for pre-push
    ./scripts/sonar-scan.sh
    ```
 
-   The script waits for the server, runs `pytest` with a `coverage.xml` report, then runs the pinned SonarScanner container against the local server. Open the printed dashboard URL to review issues. Extra arguments are passed to pytest, for example `./scripts/sonar-scan.sh -m integration` after starting the test service.
+   The script waits for the server, runs `pytest` with a `coverage.xml` report, then runs the pinned SonarScanner container against the local server. It waits up to 300 seconds for the submitted background task to succeed before printing completion; a failed, canceled or timed-out task fails the command. Open the printed dashboard URL to review issues. Extra arguments are passed to pytest, for example `./scripts/sonar-scan.sh -m integration` after starting the test service.
 
 3. Stop the server while keeping its data:
 
@@ -162,6 +164,23 @@ The `sonar` Compose profile runs a local SonarQube Community server for pre-push
    ```
 
 Use a different `SONAR_PORT` in `.env` if 9000 is taken. On native Linux, SonarQube's Elasticsearch needs `vm.max_map_count` of at least 262144; Docker Desktop handles this. Removing the SonarQube volumes deletes all local analysis history.
+
+### Retrieving Sonar issues
+
+Users and the `sonarqube-issues` skill share the standard-library Python extractor in `scripts/`. Choose a source explicitly:
+
+```sh
+uv run --locked --no-build python scripts/fetch_sonar_issues.py --source local --output /tmp/sonar-issues.json
+uv run --locked --no-build python scripts/fetch_sonar_issues.py --source cloud --pull-request 42 --output /tmp/sonar-pr-issues.json
+```
+
+Local extraction needs `SONAR_TOKEN`; Cloud needs `SONAR_CLOUD_TOKEN` and `SONAR_ORGANIZATION`. The extractor reads the repository `.env` directly, without shell execution or environment-variable overrides. Quote values containing whitespace. The project key comes from `sonar-project.properties`. `--root PATH` selects another repository and `--env-file PATH` selects another credentials file (relative to that root). By default the root is the parent of `scripts/`, so invocation works from other directories. Output paths are relative to the caller's working directory. `python3` can also run the script without installing dependencies.
+
+Without `--branch NAME` or `--pull-request NUMBER`, the API queries the server's main branch. Those two options are mutually exclusive and require server support. Run `./scripts/sonar-scan.sh` before extracting findings for the current local checkout. After a manual scanner invocation, `--wait-for-analysis` waits for the task recorded in `.scannerwork/report-task.txt`; `--wait-only` just waits. `--analysis-timeout SECONDS` overrides the 300-second wait limit. A task report represents the submitted scan, not subsequent code edits.
+
+JSON schema version 1 records source, server URL, organization, project key, total and normalized issues; an explicit branch or PR adds its context field. Issues sort by path (case-insensitive then exact), line, rule and key; tags are unique and sorted, and output has no extraction timestamp. The same API data and context produce identical bytes. Findings with different keys remain distinct even when their messages or locations match.
+
+The extractor validates every page and fails on duplicates, changing counts, incomplete pages, invalid responses, authentication errors or more than 10,000 findings. The API has no atomic snapshot, so avoid concurrent analyses or issue edits during retrieval. Errors go to stderr with exit code 2; no partial JSON is emitted and an existing output file is preserved. Only consume output after a successful command. Tokens are never included in JSON. This endpoint retrieves unresolved issues; security hotspots require a separate review.
 
 ## CI
 
