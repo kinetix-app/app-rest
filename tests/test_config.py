@@ -35,3 +35,22 @@ def test_readiness_timeout_is_bounded(value):
         Settings(
             _env_file=None, postgres_password=SecretStr("test"), database_timeout_seconds=value
         )
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "http://auth.example",
+        "https://user:pass@auth.example",
+        "https://auth.example/path",
+        "https://auth.example?key=secret",
+    ],
+)
+def test_invalid_clerk_issuer_rejected(issuer):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, postgres_password=SecretStr("test"), clerk_issuer=issuer)
+
+
+def test_production_requires_authentication_configuration():
+    with pytest.raises(ValidationError, match="CLERK_ISSUER is required"):
+        Settings(_env_file=None, postgres_password=SecretStr("test"), app_env="production")

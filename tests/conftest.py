@@ -32,3 +32,41 @@ def integration_url():
     if url.drivername != "postgresql+asyncpg" or not (url.database or "").endswith("_test"):
         pytest.fail("Integration tests require postgresql+asyncpg and a database ending in _test")
     return url
+
+
+@pytest.fixture(scope="session")
+def signing_material():
+    import json
+
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from jwt.algorithms import RSAAlgorithm
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwk = json.loads(RSAAlgorithm.to_jwk(private_key.public_key()))
+    jwk.update(kid="test-key", alg="RS256", use="sig")
+    return private_key, jwk
+
+
+@pytest.fixture
+def signed_token(signing_material):
+    import time
+
+    import jwt
+
+    def create(issuer="https://kinetix-test.clerk.accounts.dev", **overrides):
+        now = int(time.time())
+        claims = {
+            "iss": issuer,
+            "sub": "user_alice",
+            "sid": "sess_alice",
+            "exp": now + 60,
+            "nbf": now - 5,
+            "iat": now - 5,
+        }
+        claims.update(overrides)
+        claims = {key: value for key, value in claims.items() if value is not None}
+        return jwt.encode(
+            claims, signing_material[0], algorithm="RS256", headers={"kid": "test-key"}
+        )
+
+    return create
