@@ -8,7 +8,7 @@ from app.features.accounts.service import AccountDenied, read_account, update_pr
 router = APIRouter(prefix="/me", tags=["accounts"])
 
 
-@router.get("", response_model=AccountResponse)
+@router.get("", responses={403: {"description": "Account access denied"}})
 async def get_me(user: CurrentUser, session: DatabaseSession) -> AccountResponse:
     try:
         return await read_account(session, user.id)
@@ -16,7 +16,7 @@ async def get_me(user: CurrentUser, session: DatabaseSession) -> AccountResponse
         raise HTTPException(403, "Account access denied") from None
 
 
-@router.patch("/profile", response_model=AccountResponse)
+@router.patch("/profile", responses={403: {"description": "Account access denied"}})
 async def patch_profile(
     changes: ProfilePatch, user: CurrentUser, session: DatabaseSession
 ) -> AccountResponse:

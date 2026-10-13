@@ -218,8 +218,9 @@ async def test_mapping_failure_rolls_back_user_and_profile(
         before = await session.scalar(select(func.count()).select_from(User))
         profiles_before = await session.scalar(select(func.count()).select_from(Profile))
     monkeypatch.setattr(AsyncSession, "flush", fail_mapping)
+    auth_headers = headers(signed_token, issuer)
     with pytest.raises(IntegrityError):
-        await client.get("/api/v1/me", headers=headers(signed_token, issuer))
+        await client.get("/api/v1/me", headers=auth_headers)
     async with app.state.session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(User)) == before
         assert await session.scalar(select(func.count()).select_from(Profile)) == profiles_before

@@ -67,8 +67,10 @@ async def test_invalid_claims_rejected(auth_settings, signing_material, signed_t
         lambda _: httpx.Response(200, json={"keys": [signing_material[1]]})
     )
     async with httpx.AsyncClient(transport=transport) as client:
+        token = signed_token(**overrides)
+        verifier = ClerkVerifier(auth_settings, client)
         with pytest.raises(InvalidCredentials):
-            await ClerkVerifier(auth_settings, client).verify(signed_token(**overrides))
+            await verifier.verify(token)
 
 
 @pytest.mark.anyio
@@ -126,9 +128,11 @@ async def test_key_rotation_and_expired_cache_fail_closed(
     [httpx.Response(503), httpx.Response(200, json={}), httpx.Response(200, json={"keys": []})],
 )
 async def test_jwks_failure_denies_authentication(auth_settings, signed_token, response):
+    token = signed_token()
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: response)) as client:
+        verifier = ClerkVerifier(auth_settings, client)
         with pytest.raises(AuthenticationUnavailable):
-            await ClerkVerifier(auth_settings, client).verify(signed_token())
+            await verifier.verify(token)
 
 
 @pytest.mark.anyio

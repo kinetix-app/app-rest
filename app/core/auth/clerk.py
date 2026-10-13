@@ -46,43 +46,60 @@ class ClerkVerifier:
                     raise AuthenticationUnavailable
                 raise InvalidCredentials
             self._last_attempt = now
-            # URL comes exclusively from validated server configuration, never JWT claims.
-            url = f"{self.settings.clerk_issuer}/.well-known/jwks.json"
-            try:
-                response = await self.client.get(url)
-                response.raise_for_status()
-                if len(response.content) > 65536:
-                    raise ValueError("Oversized JWKS")
-                keys = response.json()["keys"]
-                if not isinstance(keys, list) or not 1 <= len(keys) <= 100:
-                    raise ValueError("Invalid JWKS")
-                parsed: dict[str, str] = {}
-                for item in keys:
-                    if not isinstance(item, dict):
-                        raise ValueError("Invalid JWK")
-                    if item.get("kty") != "RSA" or item.get("use", "sig") != "sig":
-                        continue
-                    if item.get("alg", "RS256") != "RS256":
-                        continue
-                    key_id = item.get("kid")
-                    if not isinstance(key_id, str) or not key_id or key_id in parsed:
-                        raise ValueError("Invalid key ID")
-                    public_key = jwt.algorithms.RSAAlgorithm.from_jwk(item)
-                    if not isinstance(public_key, RSAPublicKey):
-                        raise ValueError("Invalid RSA key")
-                    parsed[key_id] = public_key.public_bytes(
-                        serialization.Encoding.PEM,
-                        serialization.PublicFormat.SubjectPublicKeyInfo,
-                    ).decode()
-                if not parsed:
-                    raise ValueError("No usable signing keys")
-            except (httpx.HTTPError, jwt.PyJWTError, ValueError, KeyError, TypeError) as error:
-                raise AuthenticationUnavailable from error
-            self._keys = parsed
+            self._keys = await self._fetch_signing_keys()
             self._expires_at = monotonic() + self.settings.clerk_jwks_cache_seconds
-            if kid not in parsed:
+            if kid not in self._keys:
                 raise InvalidCredentials
-            return parsed[kid]
+            return self._keys[kid]
+
+    async def _fetch_signing_keys(self) -> dict[str, str]:
+        # URL comes exclusively from validated server configuration, never JWT claims.
+        url = f"{self.settings.clerk_issuer}/.well-known/jwks.json"
+        try:
+            response = await self.client.get(url)
+            response.raise_for_status()
+            if len(response.content) > 65536:
+                raise ValueError("Oversized JWKS")
+            return self._parse_signing_keys(response.json()["keys"])
+        except (httpx.HTTPError, jwt.PyJWTError, ValueError, KeyError, TypeError) as error:
+            raise AuthenticationUnavailable from error
+
+    @staticmethod
+    def _parse_signing_keys(keys: object) -> dict[str, str]:
+        if not isinstance(keys, list) or not 1 <= len(keys) <= 100:
+            raise ValueError("Invalid JWKS")
+        parsed: dict[str, str] = {}
+        for item in keys:
+            signing_key = ClerkVerifier._parse_signing_key(item)
+            if signing_key is None:
+                continue
+            key_id, pem = signing_key
+            if key_id in parsed:
+                raise ValueError("Invalid key ID")
+            parsed[key_id] = pem
+        if not parsed:
+            raise ValueError("No usable signing keys")
+        return parsed
+
+    @staticmethod
+    def _parse_signing_key(item: object) -> tuple[str, str] | None:
+        if not isinstance(item, dict):
+            raise ValueError("Invalid JWK")
+        if item.get("kty") != "RSA" or item.get("use", "sig") != "sig":
+            return None
+        if item.get("alg", "RS256") != "RS256":
+            return None
+        key_id = item.get("kid")
+        if not isinstance(key_id, str) or not key_id:
+            raise ValueError("Invalid key ID")
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(item)
+        if not isinstance(public_key, RSAPublicKey):
+            raise ValueError("Invalid RSA key")
+        pem = public_key.public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode()
+        return key_id, pem
 
     async def verify(self, token: str) -> VerifiedIdentity:
         if not self.settings.clerk_issuer:
