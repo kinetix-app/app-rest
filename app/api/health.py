@@ -31,6 +31,6 @@ async def readiness(request: Request) -> HealthResponse | JSONResponse:
         async with asyncio.timeout(request.app.state.settings.database_timeout_seconds):
             async with request.app.state.engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
-    except TimeoutError, SQLAlchemyError, OSError:
+    except SQLAlchemyError, OSError:
         return JSONResponse(status_code=503, content={"status": "unavailable"})
     return HealthResponse(status="ok")
