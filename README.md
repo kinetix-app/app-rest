@@ -19,7 +19,7 @@ Python **3.14.6**, uv **0.12.13** (supported local range: 0.12.x), FastAPI, Pyda
 | `app/main.py` | Application factory, lifespan and safe request logging |
 | `app/core/` | Typed environment settings and logging configuration |
 | `app/api/` | Health endpoints and `/api/v1` router composition |
-| `app/core/auth/` | Clerk key cache, token verification and current-user dependency |
+| `app/core/auth/` | Clerk SDK token verification and current-user dependency |
 | `app/features/accounts/` | Account models, private schemas, provisioning and profile routes |
 | `docs/authentication.md` | Clerk configuration runbook and account/session contract |
 | `app/db/` | ORM metadata, engine and request session dependency |
@@ -33,9 +33,9 @@ Implement feature packages under `app/features/` as their tasks are delivered. K
 
 ## Authentication setup
 
-Follow [Clerk dashboard and backend setup](docs/authentication.md) to finish configuring Google, Apple and Email OTP, set `CLERK_ISSUER`, apply the account migration and exercise the private APIs. The backend validates Clerk session tokens and atomically provisions an internal user UUID on first valid access. `GET /api/v1/me` reads/bootstrap the account; `PATCH /api/v1/me/profile` edits display name/timezone.
+Follow [Clerk dashboard and backend setup](docs/authentication.md) to finish configuring Google, Apple and Email OTP, set `CLERK_ISSUER` and backend-only `CLERK_SECRET_KEY`, apply the account migration and exercise the private APIs. The backend validates Clerk session tokens and atomically provisions an internal user UUID on first valid access. `GET /api/v1/me` reads/bootstrap the account; `PATCH /api/v1/me/profile` edits display name/timezone.
 
-Without a Clerk issuer, development/test health routes still work and bearer-authenticated feature requests return 503; production startup requires an issuer. No provider tenant has been configured by this implementation. Native sign-in, session/logout integration, linking and deletion synchronization remain outstanding under [ACC01](https://github.com/kinetix-app/app-rest/issues/1).
+Without a Clerk issuer and secret key, development/test health routes still work and bearer-authenticated feature requests return 503; production startup requires both. No provider tenant has been configured by this implementation. Native sign-in, session/logout integration, linking and deletion synchronization remain outstanding under [ACC01](https://github.com/kinetix-app/app-rest/issues/1).
 
 ## Develop with Compose dependencies and a host API
 

@@ -25,13 +25,12 @@ class Settings(BaseSettings):
     database_timeout_seconds: float = Field(default=2, gt=0, le=30)
 
     clerk_issuer: str | None = None
+    clerk_secret_key: SecretStr | None = None
     clerk_authorized_parties: list[str] = Field(default_factory=list)
     clerk_audience: str | None = None
     clerk_clock_skew_seconds: int = Field(default=5, ge=0, le=30)
-    clerk_jwks_cache_seconds: int = Field(default=300, ge=30, le=3600)
-    clerk_timeout_seconds: float = Field(default=5, gt=0, le=10)
 
-    @field_validator("clerk_issuer", "clerk_audience", mode="before")
+    @field_validator("clerk_issuer", "clerk_audience", "clerk_secret_key", mode="before")
     @classmethod
     def empty_auth_setting(cls, value: str | None) -> str | None:
         return None if value == "" else value
@@ -54,6 +53,8 @@ class Settings(BaseSettings):
             self.clerk_issuer = self.clerk_issuer.rstrip("/")
         if self.app_env == "production" and not self.clerk_issuer:
             raise ValueError("CLERK_ISSUER is required in production")
+        if self.app_env == "production" and not self.clerk_secret_key:
+            raise ValueError("CLERK_SECRET_KEY is required in production")
         return self
 
     @model_validator(mode="after")

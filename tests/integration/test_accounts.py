@@ -12,7 +12,6 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.clerk import ClerkVerifier
 from app.core.config import Settings
 from app.features.accounts import service
 from app.features.accounts.models import AuthAccount, Profile, User
@@ -30,41 +29,34 @@ def migrated_accounts(integration_url, monkeypatch):
 
 
 @pytest.fixture
-async def account_client(migrated_accounts, signing_material):
+async def account_client(migrated_accounts, clerk_jwks):
     issuer = f"https://auth-{uuid4().hex}.clerk.accounts.dev"
     settings = Settings(
         _env_file=None,
         app_env="test",
         clerk_issuer=issuer,
+        clerk_secret_key=SecretStr("sk_test_backend_only"),
         database_url=SecretStr(migrated_accounts.render_as_string(hide_password=False)),
     )
     app = create_app(settings)
     async with LifespanManager(app):
         async with httpx.AsyncClient(
-            transport=httpx.MockTransport(
-                lambda _: httpx.Response(200, json={"keys": [signing_material[1]]})
-            )
-        ) as key_client:
-            app.state.clerk_verifier = ClerkVerifier(settings, key_client)
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                try:
-                    yield client, app, issuer
-                finally:
-                    async with app.state.session_factory() as session:
-                        ids = list(
-                            (
-                                await session.scalars(
-                                    select(AuthAccount.user_id).where(AuthAccount.issuer == issuer)
-                                )
-                            ).all()
-                        )
-                        await session.execute(
-                            delete(AuthAccount).where(AuthAccount.issuer == issuer)
-                        )
-                        await session.execute(delete(User).where(User.id.in_(ids)))
-                        await session.commit()
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            try:
+                yield client, app, issuer
+            finally:
+                async with app.state.session_factory() as session:
+                    ids = list(
+                        (
+                            await session.scalars(
+                                select(AuthAccount.user_id).where(AuthAccount.issuer == issuer)
+                            )
+                        ).all()
+                    )
+                    await session.execute(delete(AuthAccount).where(AuthAccount.issuer == issuer))
+                    await session.execute(delete(User).where(User.id.in_(ids)))
+                    await session.commit()
 
 
 def headers(signed_token, issuer, **claims):

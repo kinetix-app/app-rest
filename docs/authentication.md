@@ -10,7 +10,7 @@ Tracking issue: [kinetix-app/app-rest#1](https://github.com/kinetix-app/app-rest
 4. From **API keys**, copy the public publishable key to the frontend's ignored environment as `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...`. Obtain the instance's exact **Frontend API URL** for the backend issuer, for example `https://your-instance.clerk.accounts.dev`.
 5. Keep Clerk's ordinary session-token claims unchanged: `iss`, `sub`, `sid`, `exp`, `nbf`, `iat`. The app should call its SDK's ordinary `getToken()` and attach that session token; no custom JWT template is needed for these APIs.
 
-The backend fetches public signing keys from `<CLERK_ISSUER>/.well-known/jwks.json`. It does not require a Clerk secret key, a static PEM or a separate JWKS URL setting. Clerk admin API operations/webhooks are not implemented here; if added, their secrets belong only in server configuration.
+The backend uses Clerk’s Python SDK to fetch signing keys from the Clerk Backend API with `CLERK_SECRET_KEY`. Copy the secret key from the same instance’s **API keys** page into backend configuration only. Never use it in the mobile bundle. No separate JWKS URL or static public key is needed.
 
 ## 2. Configure Google
 
@@ -38,15 +38,14 @@ Add these values to the ignored backend `.env` (example only):
 
 ```dotenv
 CLERK_ISSUER=https://your-instance.clerk.accounts.dev
+CLERK_SECRET_KEY=sk_test_...
 CLERK_AUTHORIZED_PARTIES=[]
 CLERK_CLOCK_SKEW_SECONDS=5
-CLERK_JWKS_CACHE_SECONDS=300
-CLERK_TIMEOUT_SECONDS=5
 # Only set when the chosen token contract includes this audience:
 # CLERK_AUDIENCE=kinetix-api
 ```
 
-`CLERK_ISSUER` must be an HTTPS origin without credentials, query strings or paths. It is the Clerk instance origin, not the FastAPI URL or the Google issuer. A trailing slash is normalized away. Empty issuer/audience values from Compose mean unconfigured. Production requires an issuer; development/test can run health routes without one but protected bearer requests return 503.
+`CLERK_ISSUER` must be an HTTPS origin without credentials, query strings or paths. It is the Clerk instance origin, not the FastAPI URL or the Google issuer. A trailing slash is normalized away. Empty issuer, secret-key and audience values from Compose mean unconfigured. Production requires both issuer and secret key; development/test can run health routes without them but protected bearer requests return 503.
 
 `CLERK_AUTHORIZED_PARTIES` is a JSON list of exact permitted **token `azp` values**, not the API's CORS allowlist. Native session tokens can omit `azp`; those are accepted after all other checks. If `azp` is present it must match the configured list, so `[]` rejects every token with `azp`. During the pilot, inspect only the required claim values locally and set actual permitted origins; never log/share a complete bearer token. For example, a web preview may require `["http://localhost:8081"]` if that exact value is issued. [Clerk verification rules](https://clerk.com/docs/guides/sessions/manual-jwt-verification)
 
@@ -77,7 +76,13 @@ Expo app -> Authorization: Bearer <Clerk session JWT> -> FastAPI
 FastAPI -> verified issuer/subject -> local user UUID -> owned business operations
 ```
 
-The verifier accepts only RS256 JWTs with a signing-key ID, required time/user/session claims, exact configured issuer and permitted `azp` when present. It rejects pending session status and machine/API-key credentials. Signature/time verification uses Clerk's Python SDK; the wrapper adds required-claim and issuer enforcement. Keys are cached per application instance for at most the configured TTL. Unknown key IDs trigger bounded refreshes (at most one attempt per 30 seconds per process); a new key may briefly be denied during this interval. Expired caches/provider outages fail closed with 503. No online Clerk session-revocation check occurs.
+The verifier accepts only RS256 session JWTs with required time/user/session claims, the exact configured issuer and permitted `azp` when present. Pending sessions and machine/API-key credentials are rejected.
+
+`ClerkVerifier.verify()` calls the SDK’s `verify_token_async()` with the backend secret key, optional audience and clock skew. The SDK retrieves signing keys, caches them for five minutes, refreshes after a signature mismatch, verifies the RS256 signature and supplied `exp`/`nbf`/`iat` claims, and returns a dictionary. Its cache is process-wide; run each deployed process against one Clerk instance.
+
+The Python SDK disables issuer verification and does not require time claims. Its `RequestState.to_auth()` creates version-specific auth dataclasses with optional fields; it does not validate their types or presence. A small strict `SessionClaims` model therefore requires the session fields before we compare issuer, status and authorized party and create `VerifiedIdentity`. Authorized-party validation stays here because the SDK’s allowlist rejects missing `azp`, while native tokens may omit it.
+
+See the [Python SDK source](https://github.com/clerk/clerk-sdk-python/tree/main/src/clerk_backend_api/security) and [Python authentication guide](https://clerk.com/articles/how-to-add-authentication-to-a-python-backend). The repository lockfile pins the SDK version used by tests. No application-owned key cache or HTTP client is needed. Key-service failures return 503; invalid tokens return 401. SDK HTTP timeouts/retries and cache refresh behavior apply. No online Clerk session-revocation check occurs.
 
 | Table | Ownership and constraints |
 |---|---|
@@ -144,4 +149,4 @@ docker compose --profile test up -d --wait postgres-test
 TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test uv run --locked --no-build pytest
 ```
 
-Tests use locally generated RSA keys and mock the trusted JWKS service; PostgreSQL integration tests exercise real migrations, concurrent provisioning, rollback, account denial, profile persistence and isolation in the dedicated `_test` database. These checks establish backend behavior, not actual Clerk/native integration. Never send real provider credentials or fitness data to test fixtures.
+Tests use locally generated RSA keys and mock the SDK’s Backend API HTTP transport, isolating its key cache per test; PostgreSQL integration tests exercise real migrations, concurrent provisioning, rollback, account denial, profile persistence and isolation in the dedicated `_test` database. These checks establish backend behavior, not actual Clerk/native integration. Never send real provider credentials or fitness data to test fixtures.

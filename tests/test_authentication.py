@@ -1,3 +1,4 @@
+import json
 import time
 
 import httpx
@@ -5,7 +6,7 @@ import jwt
 import pytest
 from asgi_lifespan import LifespanManager
 from cryptography.hazmat.primitives.asymmetric import rsa
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from app.core.auth.clerk import ClerkVerifier
 from app.core.auth.types import AuthenticationUnavailable, InvalidCredentials
@@ -15,31 +16,24 @@ from app.main import create_app
 
 @pytest.fixture
 def auth_settings(settings):
+    settings.clerk_secret_key = SecretStr("sk_test_backend_only")
     settings.clerk_issuer = "https://kinetix-test.clerk.accounts.dev"
     settings.clerk_authorized_parties = ["https://kinetix.example"]
     return settings
 
 
 @pytest.mark.anyio
-async def test_valid_native_token_and_key_cache(auth_settings, signing_material, signed_token):
-    requests = []
-
-    def jwks(request):
-        requests.append(request)
-        return httpx.Response(200, json={"keys": [signing_material[1]]})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(jwks)) as client:
-        verifier = ClerkVerifier(auth_settings, client)
-        identity = await verifier.verify(signed_token())
-        assert identity.subject == "user_alice"
-        await verifier.verify(signed_token(azp="https://kinetix.example"))
-        assert len(requests) == 1
-        assert str(requests[0].url) == auth_settings.clerk_issuer + "/.well-known/jwks.json"
-        unknown = jwt.encode({}, signing_material[0], algorithm="RS256", headers={"kid": "unknown"})
-        for _ in range(3):
-            with pytest.raises(InvalidCredentials):
-                await verifier.verify(unknown)
-        assert len(requests) == 1
+async def test_valid_native_token_and_sdk_key_cache(auth_settings, clerk_jwks, signed_token):
+    verifier = ClerkVerifier(auth_settings)
+    identity = await verifier.verify(signed_token())
+    assert identity.issuer == auth_settings.clerk_issuer
+    assert identity.subject == "user_alice"
+    assert identity.session_id == "sess_alice"
+    await verifier.verify(signed_token(azp="https://kinetix.example"))
+    assert len(clerk_jwks.requests) == 1
+    request = clerk_jwks.requests[0]
+    assert str(request.url) == "https://api.clerk.com/v1/jwks"
+    assert request.headers["Authorization"] == "Bearer sk_test_backend_only"
 
 
 @pytest.mark.anyio
@@ -62,24 +56,16 @@ async def test_valid_native_token_and_key_cache(auth_settings, signing_material,
         {"exp": "9999999999"},
     ],
 )
-async def test_invalid_claims_rejected(auth_settings, signing_material, signed_token, overrides):
-    transport = httpx.MockTransport(
-        lambda _: httpx.Response(200, json={"keys": [signing_material[1]]})
-    )
-    async with httpx.AsyncClient(transport=transport) as client:
-        token = signed_token(**overrides)
-        verifier = ClerkVerifier(auth_settings, client)
-        with pytest.raises(InvalidCredentials):
-            await verifier.verify(token)
+async def test_invalid_claims_rejected(auth_settings, clerk_jwks, signed_token, overrides):
+    verifier = ClerkVerifier(auth_settings)
+    with pytest.raises(InvalidCredentials):
+        await verifier.verify(signed_token(**overrides))
 
 
 @pytest.mark.anyio
 async def test_wrong_signature_and_algorithm_rejected(
-    auth_settings, signing_material, signed_token
+    auth_settings, signing_material, signed_token, clerk_jwks
 ):
-    transport = httpx.MockTransport(
-        lambda _: httpx.Response(200, json={"keys": [signing_material[1]]})
-    )
     claims = jwt.decode(signed_token(), options={"verify_signature": False})
     other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     tokens = [
@@ -87,52 +73,62 @@ async def test_wrong_signature_and_algorithm_rejected(
         jwt.encode(claims, "wrong-secret" * 4, algorithm="HS256", headers={"kid": "test-key"}),
         "not-a-jwt",
         "ak_machine",
+        "ak_machine.jwt.token",
+        "m2m_machine.jwt.token",
+        "mt_machine.jwt.token",
+        "oat_machine.jwt.token",
         "x" * 16385,
     ]
-    async with httpx.AsyncClient(transport=transport) as client:
-        verifier = ClerkVerifier(auth_settings, client)
-        for token in tokens:
-            with pytest.raises(InvalidCredentials):
-                await verifier.verify(token)
+    verifier = ClerkVerifier(auth_settings)
+    for token in tokens:
+        with pytest.raises(InvalidCredentials):
+            await verifier.verify(token)
 
 
 @pytest.mark.anyio
-async def test_key_rotation_and_expired_cache_fail_closed(
-    auth_settings, signing_material, signed_token
-):
-    responses = [
-        {"keys": [dict(signing_material[1])]},
-        {"keys": [dict(signing_material[1], kid="rotated")]},
-    ]
+async def test_sdk_refreshes_rotated_key(auth_settings, signed_token, clerk_jwks):
+    verifier = ClerkVerifier(auth_settings)
+    await verifier.verify(signed_token())
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    def jwks(_):
-        return httpx.Response(200, json=responses.pop(0))
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(jwks)) as client:
-        verifier = ClerkVerifier(auth_settings, client)
-        await verifier.verify(signed_token())
-        verifier._last_attempt = None
-        claims = jwt.decode(signed_token(), options={"verify_signature": False})
-        rotated = jwt.encode(
-            claims, signing_material[0], algorithm="RS256", headers={"kid": "rotated"}
-        )
-        await verifier.verify(rotated)
-        verifier._expires_at = 0
-        with pytest.raises(AuthenticationUnavailable):
-            await verifier.verify(rotated)
+    key = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key()))
+    # Rotation can replace the key material even while the key ID is cached.
+    key.update(kid="test-key", alg="RS256", use="sig")
+    clerk_jwks.response = httpx.Response(200, json={"keys": [key]})
+    claims = jwt.decode(signed_token(), options={"verify_signature": False})
+    rotated = jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "test-key"})
+    await verifier.verify(rotated)
+    assert len(clerk_jwks.requests) == 2
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "response",
-    [httpx.Response(503), httpx.Response(200, json={}), httpx.Response(200, json={"keys": []})],
+    [httpx.Response(503), httpx.Response(200, json={}), httpx.Response(200, content="invalid")],
 )
-async def test_jwks_failure_denies_authentication(auth_settings, signed_token, response):
-    token = signed_token()
-    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: response)) as client:
-        verifier = ClerkVerifier(auth_settings, client)
-        with pytest.raises(AuthenticationUnavailable):
-            await verifier.verify(token)
+async def test_jwks_failure_denies_authentication(
+    auth_settings, signed_token, clerk_jwks, response
+):
+    clerk_jwks.response = response
+    with pytest.raises(AuthenticationUnavailable):
+        await ClerkVerifier(auth_settings).verify(signed_token())
+
+
+@pytest.mark.anyio
+async def test_unknown_key_rejected(auth_settings, signed_token, clerk_jwks):
+    clerk_jwks.response = httpx.Response(200, json={"keys": []})
+    with pytest.raises(InvalidCredentials):
+        await ClerkVerifier(auth_settings).verify(signed_token())
+
+
+@pytest.mark.anyio
+async def test_audience_enforced(auth_settings, signed_token, clerk_jwks):
+    auth_settings.clerk_audience = "kinetix-api"
+    verifier = ClerkVerifier(auth_settings)
+    await verifier.verify(signed_token(aud="kinetix-api"))
+    for audience in (None, "other-api"):
+        with pytest.raises(InvalidCredentials):
+            await verifier.verify(signed_token(aud=audience))
 
 
 @pytest.mark.anyio
@@ -168,3 +164,45 @@ def test_profile_validation(changes):
 def test_profile_patch_omission_and_null_are_distinct():
     assert ProfilePatch().model_dump(exclude_unset=True) == {}
     assert ProfilePatch(display_name=None).model_dump(exclude_unset=True) == {"display_name": None}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("claim", ["exp", "nbf", "iat"])
+async def test_invalid_time_claim_type_rejected(auth_settings, clerk_jwks, signed_token, claim):
+    with pytest.raises(InvalidCredentials):
+        await ClerkVerifier(auth_settings).verify(signed_token(**{claim: {"invalid": 1}}))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [401, 503])
+async def test_authentication_failure_does_not_access_database(
+    auth_settings, clerk_jwks, signed_token, status
+):
+    if status == 503:
+        clerk_jwks.response = httpx.Response(503)
+    token = signed_token(iss="https://attacker.example")
+    app = create_app(auth_settings)  # Deliberately unreachable database.
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+            assert response.status_code == status
+            assert token not in response.text
+
+
+@pytest.mark.anyio
+async def test_missing_secret_key_denies_authentication(auth_settings, signed_token):
+    auth_settings.clerk_secret_key = None
+    with pytest.raises(AuthenticationUnavailable):
+        await ClerkVerifier(auth_settings).verify(signed_token())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("error", [httpx.ConnectError("unavailable"), httpx.ReadTimeout("timeout")])
+async def test_sdk_network_failure_denies_authentication(
+    auth_settings, clerk_jwks, signed_token, error
+):
+    clerk_jwks.error = error
+    with pytest.raises(AuthenticationUnavailable):
+        await ClerkVerifier(auth_settings).verify(signed_token())

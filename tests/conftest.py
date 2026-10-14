@@ -70,3 +70,39 @@ def signed_token(signing_material):
         )
 
     return create
+
+
+@pytest.fixture
+def clerk_jwks(monkeypatch, signing_material):
+    """Exercise the real SDK verifier with an isolated cache and mocked HTTP transport."""
+    from importlib import import_module
+    from types import SimpleNamespace
+
+    import httpx
+    from clerk_backend_api.security.cache import Cache
+
+    sdk = import_module("clerk_backend_api.security.verifytoken")
+    requests = []
+    remote = SimpleNamespace(
+        response=httpx.Response(200, json={"keys": [signing_material[1]]}), error=None
+    )
+
+    def handle(request):
+        requests.append(request)
+        if remote.error is not None:
+            raise remote.error
+        return remote.response
+
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(sdk, "__jwkcache", Cache())
+    monkeypatch.setattr(
+        sdk,
+        "httpx",
+        SimpleNamespace(
+            AsyncClient=lambda **kwargs: client_class(transport=httpx.MockTransport(handle)),
+            AsyncHTTPTransport=httpx.AsyncHTTPTransport,
+            TimeoutException=httpx.TimeoutException,
+        ),
+    )
+    remote.requests = requests
+    return remote

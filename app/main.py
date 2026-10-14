@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
 
-import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -28,12 +27,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.settings = configuration
         application.state.engine = engine
         application.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        application.state.clerk_verifier = ClerkVerifier(configuration)
         try:
-            async with httpx.AsyncClient(
-                timeout=configuration.clerk_timeout_seconds, follow_redirects=False
-            ) as auth_client:
-                application.state.clerk_verifier = ClerkVerifier(configuration, auth_client)
-                yield
+            yield
         finally:
             await engine.dispose()
 
