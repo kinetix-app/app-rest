@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import Settings
 from app.db.base import Base
+from app.features.accounts import models  # noqa: F401
 
 # Import implemented feature models here so autogenerate sees their tables.
 target_metadata = Base.metadata

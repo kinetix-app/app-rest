@@ -35,7 +35,8 @@ async def test_request_logs_do_not_include_query_credentials(settings, caplog):
     records = [
         record.getMessage() for record in caplog.records if record.name == "kinetix.requests"
     ]
-    assert records and all("private-example-token" not in record for record in records)
+    assert records
+    assert all("private-example-token" not in record for record in records)
     assert len(response.headers["X-Request-ID"]) == 32
 
 

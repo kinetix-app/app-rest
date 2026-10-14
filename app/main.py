@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.health import router as health_router
 from app.api.router import api_router
+from app.core.auth.clerk import ClerkVerifier
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.db.session import create_database_engine
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.settings = configuration
         application.state.engine = engine
         application.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        application.state.clerk_verifier = ClerkVerifier(configuration)
         try:
             yield
         finally:
