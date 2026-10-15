@@ -211,3 +211,58 @@ CREATE TABLE activity_goal (
         (end_date IS NULL OR end_date >= start_date)
     )
 );
+
+
+
+-- Physical goals section
+-- Physical goals defined by users
+CREATE TABLE physical_goal (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    goal_type VARCHAR(50) NOT NULL,
+    target_value DECIMAL(8,2) NOT NULL,
+    start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    target_date DATE,
+    completed_at TIMESTAMP,
+
+    CONSTRAINT physical_goal_dates_check CHECK (
+        target_date IS NULL OR target_date >= start_date
+    )
+);
+
+-- Body measurements recorded by users to track physical progress
+CREATE TABLE body_measurement (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    weight_kg DECIMAL(5,2),
+    body_fat_percentage DECIMAL(5,2),
+    muscle_mass_kg DECIMAL(5,2),
+    waist_cm DECIMAL(5,2),
+    chest_cm DECIMAL(5,2),
+    arm_cm DECIMAL(5,2),
+    thigh_cm DECIMAL(5,2),
+
+    CONSTRAINT body_measurement_values_check CHECK (
+        (weight_kg IS NULL OR weight_kg > 0) AND
+        (body_fat_percentage IS NULL OR body_fat_percentage BETWEEN 0 AND 100) AND
+        (muscle_mass_kg IS NULL OR muscle_mass_kg >= 0) AND
+        (waist_cm IS NULL OR waist_cm > 0) AND
+        (chest_cm IS NULL OR chest_cm > 0) AND
+        (arm_cm IS NULL OR arm_cm > 0) AND
+        (thigh_cm IS NULL OR thigh_cm > 0)
+    )
+);
+
+-- Intermediate milestones associated with physical goals
+CREATE TABLE goal_milestone (
+    id BIGSERIAL PRIMARY KEY,
+    physical_goal_id BIGINT NOT NULL REFERENCES physical_goal(id),
+    target_value DECIMAL(8,2) NOT NULL,
+    target_date DATE,
+    completed_at TIMESTAMP,
+
+    CONSTRAINT goal_milestone_values_check CHECK (
+        target_value >= 0
+    )
+);
