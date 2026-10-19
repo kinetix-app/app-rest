@@ -1,3 +1,17 @@
+-- Basic user information table
+-- Users section
+-- Stores basic user information and authentication credentials
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+
 -- Nutrition section
 -- Manages foods, recipes, and daily meal tracking.
 -- Foods store nutritional values per 100g and can be used in multiple recipes.
@@ -17,7 +31,7 @@ CREATE TABLE food (
     protein DECIMAL(8,2) NOT NULL,
     carbohydrates DECIMAL(8,2) NOT NULL,
     fats DECIMAL(8,2) NOT NULL,
-    barcode VARCHAR(50),
+    barcode VARCHAR(50)
 );
 
 --CONSTRAINT food_nutrition_nonnegative_check CHECK (
@@ -31,7 +45,7 @@ CREATE TABLE recipe (
     name VARCHAR(150) NOT NULL,
     description TEXT,
     instructions TEXT,
-    servings INTEGER NOT NULL DEFAULT 1,
+    servings INTEGER NOT NULL DEFAULT 1
 );
 
 --     CONSTRAINT recipe_servings_positive_check CHECK (servings > 0)
@@ -42,7 +56,7 @@ CREATE TABLE recipe_ingredient (
     id BIGSERIAL PRIMARY KEY,
     recipe_id BIGINT NOT NULL REFERENCES recipe(id),
     food_id BIGINT NOT NULL REFERENCES food(id),
-    quantity_grams DECIMAL(8,2) NOT NULL,
+    quantity_grams DECIMAL(8,2) NOT NULL
 );
 
 -- CONSTRAINT recipe_ingredient_quantity_positive_check CHECK (quantity_grams > 0)
@@ -53,7 +67,7 @@ CREATE TABLE recipe_ingredient (
 CREATE TABLE nutrition_day (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
-    date DATE NOT NULL,
+    date DATE NOT NULL
 );
 
 --  CONSTRAINT nutrition_day_user_date_unique UNIQUE (user_id, date)
@@ -73,7 +87,7 @@ CREATE TABLE meal_item (
     food_id BIGINT REFERENCES food(id),
     recipe_id BIGINT REFERENCES recipe(id),
     quantity_grams DECIMAL(8,2),
-    servings DECIMAL(8,2),
+    servings DECIMAL(8,2)
 );
 
 --CONSTRAINT meal_item_source_check CHECK (
@@ -89,7 +103,7 @@ CREATE TABLE nutrition_goal (
     calories DECIMAL(8,2) NOT NULL,
     protein DECIMAL(8,2) NOT NULL,
     carbohydrates DECIMAL(8,2) NOT NULL,
-    fats DECIMAL(8,2) NOT NULL,
+    fats DECIMAL(8,2) NOT NULL
 );
 
 --CONSTRAINT nutrition_goal_values_check CHECK (
@@ -135,7 +149,7 @@ CREATE TABLE routine_exercise (
     reps INTEGER,
     weight_kg DECIMAL(8,2),
     duration_seconds INTEGER,
-    distance_km DECIMAL(8,2),
+    distance_km DECIMAL(8,2)
 );
 
 --CONSTRAINT routine_exercise_values_check CHECK (
@@ -155,7 +169,7 @@ CREATE TABLE training_session (
     sport_id BIGINT NOT NULL REFERENCES sport(id),
     started_at TIMESTAMP NOT NULL,
     ended_at TIMESTAMP,
-    notes TEXT,
+    notes TEXT
 );
 
 --CONSTRAINT training_session_dates_check CHECK (
@@ -168,7 +182,7 @@ CREATE TABLE session_exercise (
     session_id BIGINT NOT NULL REFERENCES training_session(id),
     exercise_id BIGINT NOT NULL REFERENCES exercise(id),
     exercise_order INTEGER NOT NULL,
-    notes TEXT,
+    notes TEXT
 );
 
 --CONSTRAINT session_exercise_order_check CHECK (
@@ -184,7 +198,7 @@ CREATE TABLE exercise_set (
     weight_kg DECIMAL(8,2),
     duration_seconds INTEGER,
     distance_km DECIMAL(8,2),
-    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    completed BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 --CONSTRAINT exercise_set_values_check CHECK (
@@ -206,7 +220,7 @@ CREATE TABLE activity_goal (
     target_value DECIMAL(10,2) NOT NULL,
     period VARCHAR(20) NOT NULL,
     start_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    end_date DATE,
+    end_date DATE
 );
 
 --CONSTRAINT activity_goal_values_check CHECK (
@@ -225,7 +239,7 @@ CREATE TABLE physical_goal (
     target_value DECIMAL(8,2) NOT NULL,
     start_date DATE NOT NULL DEFAULT CURRENT_DATE,
     target_date DATE,
-    completed_at TIMESTAMP,
+    completed_at TIMESTAMP
 );
 
 --CONSTRAINT physical_goal_dates_check CHECK (
@@ -243,7 +257,7 @@ CREATE TABLE body_measurement (
     waist_cm DECIMAL(5,2),
     chest_cm DECIMAL(5,2),
     arm_cm DECIMAL(5,2),
-    thigh_cm DECIMAL(5,2),
+    thigh_cm DECIMAL(5,2)
 );
 
 --CONSTRAINT body_measurement_values_check CHECK (
@@ -262,7 +276,7 @@ CREATE TABLE goal_milestone (
     physical_goal_id BIGINT NOT NULL REFERENCES physical_goal(id),
     target_value DECIMAL(8,2) NOT NULL,
     target_date DATE,
-    completed_at TIMESTAMP,
+    completed_at TIMESTAMP
 );
 
 --CONSTRAINT goal_milestone_values_check CHECK (
