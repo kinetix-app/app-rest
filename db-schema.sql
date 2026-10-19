@@ -18,11 +18,11 @@ CREATE TABLE food (
     carbohydrates DECIMAL(8,2) NOT NULL,
     fats DECIMAL(8,2) NOT NULL,
     barcode VARCHAR(50),
-
-    CONSTRAINT food_nutrition_nonnegative_check CHECK (
-        calories >= 0 AND protein >= 0 AND carbohydrates >= 0 AND fats >= 0
-    )
 );
+
+--CONSTRAINT food_nutrition_nonnegative_check CHECK (
+  --      calories >= 0 AND protein >= 0 AND carbohydrates >= 0 AND fats >= 0
+    --)
 
 -- Recipe table
 CREATE TABLE recipe (
@@ -32,9 +32,10 @@ CREATE TABLE recipe (
     description TEXT,
     instructions TEXT,
     servings INTEGER NOT NULL DEFAULT 1,
-
-    CONSTRAINT recipe_servings_positive_check CHECK (servings > 0)
 );
+
+--     CONSTRAINT recipe_servings_positive_check CHECK (servings > 0)
+
 
 -- Ingredients of a recipe, relate to recipes and food
 CREATE TABLE recipe_ingredient (
@@ -42,9 +43,10 @@ CREATE TABLE recipe_ingredient (
     recipe_id BIGINT NOT NULL REFERENCES recipe(id),
     food_id BIGINT NOT NULL REFERENCES food(id),
     quantity_grams DECIMAL(8,2) NOT NULL,
-
-    CONSTRAINT recipe_ingredient_quantity_positive_check CHECK (quantity_grams > 0)
 );
+
+-- CONSTRAINT recipe_ingredient_quantity_positive_check CHECK (quantity_grams > 0)
+
 
 
 -- The total nutrition for a day, relate to a date
@@ -52,9 +54,9 @@ CREATE TABLE nutrition_day (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
     date DATE NOT NULL,
-
-    CONSTRAINT nutrition_day_user_date_unique UNIQUE (user_id, date)
 );
+
+--  CONSTRAINT nutrition_day_user_date_unique UNIQUE (user_id, date)
 
 
 -- Meals for a day, relate to nutrition_day
@@ -72,13 +74,13 @@ CREATE TABLE meal_item (
     recipe_id BIGINT REFERENCES recipe(id),
     quantity_grams DECIMAL(8,2),
     servings DECIMAL(8,2),
-
-    CONSTRAINT meal_item_source_check CHECK (
-        (food_id IS NOT NULL AND recipe_id IS NULL AND quantity_grams > 0 AND servings IS NULL)
-        OR
-        (recipe_id IS NOT NULL AND food_id IS NULL AND servings > 0 AND quantity_grams IS NULL)
-    )
 );
+
+--CONSTRAINT meal_item_source_check CHECK (
+  --      (food_id IS NOT NULL AND recipe_id IS NULL AND quantity_grams > 0 AND servings IS NULL)
+    --    OR
+      --  (recipe_id IS NOT NULL AND food_id IS NULL AND servings > 0 AND quantity_grams IS NULL)
+    --)
 
 -- Daily nutritional goals for each user
 CREATE TABLE nutrition_goal (
@@ -88,11 +90,11 @@ CREATE TABLE nutrition_goal (
     protein DECIMAL(8,2) NOT NULL,
     carbohydrates DECIMAL(8,2) NOT NULL,
     fats DECIMAL(8,2) NOT NULL,
-
-    CONSTRAINT nutrition_goal_values_check CHECK (
-        calories > 0 AND protein >= 0 AND carbohydrates >= 0 AND fats >= 0
-    )
 );
+
+--CONSTRAINT nutrition_goal_values_check CHECK (
+  --      calories > 0 AND protein >= 0 AND carbohydrates >= 0 AND fats >= 0
+    --)
 
 
 -- Training section
@@ -134,16 +136,16 @@ CREATE TABLE routine_exercise (
     weight_kg DECIMAL(8,2),
     duration_seconds INTEGER,
     distance_km DECIMAL(8,2),
-
-    CONSTRAINT routine_exercise_values_check CHECK (
-        exercise_order > 0 AND
-        (sets IS NULL OR sets > 0) AND
-        (reps IS NULL OR reps > 0) AND
-        (weight_kg IS NULL OR weight_kg >= 0) AND
-        (duration_seconds IS NULL OR duration_seconds > 0) AND
-        (distance_km IS NULL OR distance_km > 0)
-    )
 );
+
+--CONSTRAINT routine_exercise_values_check CHECK (
+  --      exercise_order > 0 AND
+    --    (sets IS NULL OR sets > 0) AND
+      --  (reps IS NULL OR reps > 0) AND
+        --(weight_kg IS NULL OR weight_kg >= 0) AND
+        --(duration_seconds IS NULL OR duration_seconds > 0) AND
+        --(distance_km IS NULL OR distance_km > 0)
+    --)
 
 -- Training sessions performed by users, optionally based on a routine
 CREATE TABLE training_session (
@@ -154,11 +156,11 @@ CREATE TABLE training_session (
     started_at TIMESTAMP NOT NULL,
     ended_at TIMESTAMP,
     notes TEXT,
-
-    CONSTRAINT training_session_dates_check CHECK (
-        ended_at IS NULL OR ended_at >= started_at
-    )
 );
+
+--CONSTRAINT training_session_dates_check CHECK (
+  --      ended_at IS NULL OR ended_at >= started_at
+    --)
 
 -- Exercises performed during a training session
 CREATE TABLE session_exercise (
@@ -167,11 +169,11 @@ CREATE TABLE session_exercise (
     exercise_id BIGINT NOT NULL REFERENCES exercise(id),
     exercise_order INTEGER NOT NULL,
     notes TEXT,
-
-    CONSTRAINT session_exercise_order_check CHECK (
-        exercise_order > 0
-    )
 );
+
+--CONSTRAINT session_exercise_order_check CHECK (
+  --      exercise_order > 0
+    --)
 
 -- Sets performed for each exercise during a training session
 CREATE TABLE exercise_set (
@@ -183,17 +185,17 @@ CREATE TABLE exercise_set (
     duration_seconds INTEGER,
     distance_km DECIMAL(8,2),
     completed BOOLEAN NOT NULL DEFAULT FALSE,
-
-    CONSTRAINT exercise_set_values_check CHECK (
-        set_number > 0 AND
-        (reps IS NULL OR reps >= 0) AND
-        (weight_kg IS NULL OR weight_kg >= 0) AND
-        (duration_seconds IS NULL OR duration_seconds >= 0) AND
-        (distance_km IS NULL OR distance_km >= 0)
-    ),
-
-    CONSTRAINT exercise_set_number_unique UNIQUE (session_exercise_id, set_number)
 );
+
+--CONSTRAINT exercise_set_values_check CHECK (
+  --      set_number > 0 AND
+    --    (reps IS NULL OR reps >= 0) AND
+     --   (weight_kg IS NULL OR weight_kg >= 0) AND
+      --  (duration_seconds IS NULL OR duration_seconds >= 0) AND
+      --  (distance_km IS NULL OR distance_km >= 0)
+    --),
+
+    --CONSTRAINT exercise_set_number_unique UNIQUE (session_exercise_id, set_number)
 
 -- Physical activity goals for each user
 CREATE TABLE activity_goal (
@@ -205,12 +207,12 @@ CREATE TABLE activity_goal (
     period VARCHAR(20) NOT NULL,
     start_date DATE NOT NULL DEFAULT CURRENT_DATE,
     end_date DATE,
-
-    CONSTRAINT activity_goal_values_check CHECK (
-        target_value > 0 AND
-        (end_date IS NULL OR end_date >= start_date)
-    )
 );
+
+--CONSTRAINT activity_goal_values_check CHECK (
+  --      target_value > 0 AND
+    --    (end_date IS NULL OR end_date >= start_date)
+    --)
 
 
 
@@ -224,11 +226,11 @@ CREATE TABLE physical_goal (
     start_date DATE NOT NULL DEFAULT CURRENT_DATE,
     target_date DATE,
     completed_at TIMESTAMP,
-
-    CONSTRAINT physical_goal_dates_check CHECK (
-        target_date IS NULL OR target_date >= start_date
-    )
 );
+
+--CONSTRAINT physical_goal_dates_check CHECK (
+  --      target_date IS NULL OR target_date >= start_date
+    --)
 
 -- Body measurements recorded by users to track physical progress
 CREATE TABLE body_measurement (
@@ -242,17 +244,17 @@ CREATE TABLE body_measurement (
     chest_cm DECIMAL(5,2),
     arm_cm DECIMAL(5,2),
     thigh_cm DECIMAL(5,2),
-
-    CONSTRAINT body_measurement_values_check CHECK (
-        (weight_kg IS NULL OR weight_kg > 0) AND
-        (body_fat_percentage IS NULL OR body_fat_percentage BETWEEN 0 AND 100) AND
-        (muscle_mass_kg IS NULL OR muscle_mass_kg >= 0) AND
-        (waist_cm IS NULL OR waist_cm > 0) AND
-        (chest_cm IS NULL OR chest_cm > 0) AND
-        (arm_cm IS NULL OR arm_cm > 0) AND
-        (thigh_cm IS NULL OR thigh_cm > 0)
-    )
 );
+
+--CONSTRAINT body_measurement_values_check CHECK (
+  --      (weight_kg IS NULL OR weight_kg > 0) AND
+  --      (body_fat_percentage IS NULL OR body_fat_percentage BETWEEN 0 AND 100) AND
+  --      (muscle_mass_kg IS NULL OR muscle_mass_kg >= 0) AND
+  --      (waist_cm IS NULL OR waist_cm > 0) AND
+  --      (chest_cm IS NULL OR chest_cm > 0) AND
+  --      (arm_cm IS NULL OR arm_cm > 0) AND
+  --      (thigh_cm IS NULL OR thigh_cm > 0)
+--    )
 
 -- Intermediate milestones associated with physical goals
 CREATE TABLE goal_milestone (
@@ -261,8 +263,8 @@ CREATE TABLE goal_milestone (
     target_value DECIMAL(8,2) NOT NULL,
     target_date DATE,
     completed_at TIMESTAMP,
-
-    CONSTRAINT goal_milestone_values_check CHECK (
-        target_value >= 0
-    )
 );
+
+--CONSTRAINT goal_milestone_values_check CHECK (
+  --      target_value >= 0
+    --)
