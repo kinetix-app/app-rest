@@ -19,14 +19,14 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 - Services define successful commit and failure rollback boundaries. Await async I/O, move blocking computation behind an appropriate execution boundary, and finish database transactions before slow provider calls.
 - Add schema changes through manually reviewed Alembic revisions in `migrations/versions/`, with database constraints and feature model imports in `migrations/env.py`. Verify clean setup and applicable upgrades.
 - Delegate signing-key retrieval, caching and signature/time verification to Clerk’s async SDK using backend-only `CLERK_SECRET_KEY`. The local claims model requires session fields and enforces the configured issuer and native-compatible authorized-party policy.
-- Protected routes use `CurrentUser` from `app/core/auth/dependencies.py`; it validates a Clerk session before resolving an active local UUID. Reuse this dependency for owned features, never request-body identities. Keep provider network calls outside database transactions.
+- Protected routes use `CurrentUser` from `app/core/auth/dependencies.py`; it validates the selected authentication adapter before resolving an active local UUID. `AUTH_MODE` defaults to `basic` outside production and `clerk` in production. Both repositories use these names. `BASIC_AUTH_USERS` configures local accounts; an empty mapping denies all sign-ins, and Basic is forbidden in production. Reuse this dependency for owned features, never request-body identities. Keep provider network calls outside database transactions.
 - Derive identity/ownership from authentication, authorize resource operations and cover two-account isolation with owned features. Account work defines session expiration and logout/revocation.
 - Use deterministic nutrition/league/progress calculations, documented precision/rounding, explicit units and timezone-aware event handling. Separate templates, completed activities and membership; reuse activity references and preserve community-copy provenance.
 
 ## Development and packaging
 
 - Use uv for dependency management and commands. Commit manifest and lockfile changes together. The README is the setup/command reference.
-- Compose runs PostgreSQL dependencies; host uv/Uvicorn is the default development mode and the `app` profile runs the packaged API. Use host published ports versus Compose service names correctly.
+- Compose runs the packaged API and PostgreSQL by default; start only `postgres` when developing with host uv/Uvicorn. Use host published ports versus Compose service names correctly.
 - An optional `sonar` profile runs a local SonarQube Community server for pre-push analysis through `scripts/sonar-scan.sh`; it uses the embedded database and named volumes and is not part of CI.
 - Add dependency services alongside consuming features. Use dependency-native health checks and healthy-startup conditions, with bounded API liveness/readiness behavior and failure/recovery verification.
 - Maintain cached multi-stage builds, compatible Python/OS/runtime paths, a slim non-root runtime and an appropriately scoped Docker build context. Verify runtime contents and cache reuse after packaging changes.

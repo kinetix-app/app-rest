@@ -16,6 +16,7 @@ def anyio_backend():
 def settings():
     return Settings(
         _env_file=None,
+        auth_mode="clerk",
         database_url=None,
         postgres_password=SecretStr("test-only-password"),
         postgres_port=1,

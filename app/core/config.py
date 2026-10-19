@@ -9,6 +9,12 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
 
+class CorsSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    cors_allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8081"])
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
@@ -23,6 +29,9 @@ class Settings(BaseSettings):
     postgres_host: str = Field(default="127.0.0.1", min_length=1)
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     database_timeout_seconds: float = Field(default=2, gt=0, le=30)
+    cors_allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8081"])
+    auth_mode: Literal["basic", "clerk"] | None = None
+    basic_auth_users: dict[str, SecretStr] = Field(default_factory=dict)
 
     clerk_issuer: str | None = None
     clerk_secret_key: SecretStr | None = None
@@ -30,13 +39,37 @@ class Settings(BaseSettings):
     clerk_audience: str | None = None
     clerk_clock_skew_seconds: int = Field(default=5, ge=0, le=30)
 
-    @field_validator("clerk_issuer", "clerk_audience", "clerk_secret_key", mode="before")
+    @field_validator(
+        "auth_mode",
+        "database_url",
+        "clerk_issuer",
+        "clerk_audience",
+        "clerk_secret_key",
+        mode="before",
+    )
     @classmethod
     def empty_auth_setting(cls, value: str | None) -> str | None:
         return None if value == "" else value
 
+    @field_validator("basic_auth_users")
+    @classmethod
+    def validate_development_users(cls, users: dict[str, SecretStr]) -> dict[str, SecretStr]:
+        if any(
+            not username
+            or len(username) > 255
+            or ":" in username
+            or not password.get_secret_value()
+            for username, password in users.items()
+        ):
+            raise ValueError("Development users require usernames and nonempty passwords")
+        return users
+
     @model_validator(mode="after")
     def validate_authentication_configuration(self) -> Self:
+        if self.auth_mode is None:
+            self.auth_mode = "clerk" if self.app_env == "production" else "basic"
+        if self.auth_mode == "basic" and self.app_env == "production":
+            raise ValueError("AUTH_MODE=basic is forbidden in production")
         if self.clerk_issuer is not None:
             url = urlsplit(self.clerk_issuer)
             if (
