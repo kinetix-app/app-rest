@@ -9,12 +9,6 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
 
-class CorsSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
-    cors_allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8081"])
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True

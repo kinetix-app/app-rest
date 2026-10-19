@@ -10,9 +10,22 @@ Read this guide and [AGENTS.md](AGENTS.md), inspect the implementation and follo
 
 The management repository owns product scope, sprint commitments, diagrams and architecture decisions, including ADR-002. This repository owns runtime services, migrations, application packaging and setup instructions. Documentation is in English; relative links stay within this repository.
 
+## Quickstart
+
+Install Docker with Compose v2, uv **0.12.13 or newer**, and Make. Docker/CI keep an exact uv pin for reproducible builds. uv manages Python using `.python-version`.
+
+For a fresh checkout, copy `.env.example` to `.env`; keep any existing local `.env`. Set `POSTGRES_PASSWORD` and configure `BASIC_AUTH_USERS` with your own development email/password before signing in.
+
+```sh
+make setup
+make dev
+```
+
+Open [API docs](http://127.0.0.1:8000/docs). Development uses Basic authentication by default. Clerk testing and production configuration are covered in [authentication setup](docs/authentication.md).
+
 ## Stack and structure
 
-Python **3.14.6**, uv **0.12.13** (supported local range: 0.12.x), FastAPI, Pydantic v2/settings, SQLAlchemy async with asyncpg, Alembic, Uvicorn, Ruff, pytest and HTTPX. PostgreSQL **18.6** is served by a pinned Compose image. Resolved Python dependency versions are in `uv.lock`; Docker base/tool/service images are pinned by digest.
+Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Pydantic v2/settings, SQLAlchemy async with asyncpg, Alembic, Uvicorn, Ruff, pytest and HTTPX. PostgreSQL **18.6** is served by a pinned Compose image. Resolved Python dependency versions are in `uv.lock`; Docker base/tool/service images are pinned by digest.
 
 | Location | Purpose |
 |---|---|
@@ -65,31 +78,27 @@ return **200** with an active account. Repeat it with a wrong password: it must 
 **401**. Repeat with the correct password: the account UUID must stay the same.
 A **500** after correct credentials can indicate unapplied migrations; check API logs.
 
-## Develop with Compose dependencies and a host API
+## Development commands
 
-Install uv and Docker with Compose v2 supporting `--wait`. Run commands from the backend checkout. uv uses `.python-version` and manages the project's environment.
+The [Makefile](Makefile) wraps the existing uv and Compose commands. It uses the host API with automatic reload and starts only PostgreSQL in Docker. Run commands from this checkout; `make` is available on macOS/Linux and through WSL or GNU Make on Windows.
 
-1. Copy configuration and choose a local development password before starting PostgreSQL:
+| Command | Purpose |
+|---|---|
+| `make setup` | Install locked development dependencies, start PostgreSQL and apply migrations |
+| `make dev` | Ensure PostgreSQL is healthy and start Uvicorn with reload |
+| `make migrate` | Apply migrations after pulling schema changes |
+| `make check` | Check the lockfile, Ruff lint/format and non-integration tests |
+| `make db` | Start PostgreSQL alone |
 
-   ```sh
-   cp .env.example .env
-   ```
+After first setup, use `make dev` for daily work. Re-run `make setup` when dependencies change, or `make migrate` when migrations change. Stop Uvicorn with Ctrl-C; PostgreSQL keeps its data in a named volume. Stop PostgreSQL with `docker compose stop postgres`.
 
-2. Start PostgreSQL, synchronize the locked environment and apply the migration chain:
+Without Make, the equivalent API command is:
 
-   ```sh
-   docker compose up -d --wait postgres
-   uv sync --locked --no-build
-   uv run --locked --no-build alembic upgrade head
-   ```
+```sh
+uv run --locked --no-build uvicorn app.main:create_app --factory --reload --no-access-log
+```
 
-3. Start the development server:
-
-   ```sh
-   uv run --locked --no-build uvicorn app.main:app --reload --no-access-log
-   ```
-
-Open [API docs](http://127.0.0.1:8000/docs). `/health/live` returns 200 when the API responds. `/health/ready` performs a bounded PostgreSQL query and returns 200 or 503. Application request logs include generated request IDs, route templates, status and duration; query strings and bodies are kept out of those logs.
+The factory loads and validates one settings object. Database resources are created and disposed during the application lifespan. `/health/live` reports whether the API responds; `/health/ready` checks PostgreSQL with a configured query timeout. Request logs include IDs, route templates, status and duration, excluding query strings and bodies.
 
 ### Configuration
 
@@ -246,7 +255,7 @@ docker compose logs --tail=100 api
 docker compose down
 ```
 
-PostgreSQL is checked with `pg_isready`; API readiness queries it using application credentials. Health failures should lead to checking the connection hostname/port, credentials and database logs. Health checks handle startup ordering; the API also returns bounded readiness failures and can reconnect after the database returns.
+PostgreSQL is checked with `pg_isready`; API readiness queries it using application credentials. Health failures should lead to checking the connection hostname/port, credentials and database logs. Health checks handle startup ordering; readiness reports database failures and recovers after the database returns. A paused PostgreSQL process can delay pooled-connection cleanup beyond `DATABASE_TIMEOUT_SECONDS` (observed past 15 seconds); the container health check has its own external timeout. Stopping/restarting PostgreSQL was verified separately from this paused-process limitation.
 
 Normal shutdown preserves the named data volumes. Existing volumes retain their initialized credentials; changing `.env` does not change an existing database role. Redact sensitive output before sharing diagnostics. Resetting a volume is a deliberate data-deletion operation.
 

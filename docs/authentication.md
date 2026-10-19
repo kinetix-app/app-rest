@@ -69,24 +69,18 @@ CLERK_CLOCK_SKEW_SECONDS=5
 
 `CLERK_AUTHORIZED_PARTIES` is a JSON list of exact permitted **token `azp` values**, not the API's CORS allowlist. Native session tokens can omit `azp`; those are accepted after all other checks. If `azp` is present it must match the configured list, so `[]` rejects every token with `azp`. During the pilot, inspect only the required claim values locally and set actual permitted origins; never log/share a complete bearer token. For example, a web preview may require `["http://localhost:8081"]` if that exact value is issued. [Clerk verification rules](https://clerk.com/docs/guides/sessions/manual-jwt-verification)
 
-Run from the backend repository using its pinned uv:
+Run from the backend repository using uv 0.12.13 or newer:
 
 ```sh
 uv sync --locked --no-build
 docker compose up -d --wait postgres
 uv run --locked --no-build alembic upgrade head
-uv run --locked --no-build uvicorn app.main:app --reload --no-access-log
+uv run --locked --no-build uvicorn app.main:create_app --factory --reload --no-access-log
 ```
 
 Compose passes the same `.env` Clerk settings into the packaged API. The backend needs outbound HTTPS access to its configured Clerk instance. Migration commands need only the database settings in development; production settings validation still requires the issuer.
 
-If the installed uv is older than the repository's pin, run the pinned version without changing the project requirement:
-
-```sh
-uv tool run --from uv==0.12.13 uv sync --project . --locked --no-build
-```
-
-For production, create/configure the separate Clerk production instance, satisfy Clerk's domain/DNS requirements, use production provider credentials and publishable key, and set the backend to that instance's issuer. Confirm session limits and email behavior on the chosen plan. [Production setup](https://clerk.com/docs/guides/development/deployment/production)
+For daily development, `make setup` installs dependencies and applies migrations, and `make dev` starts the API with reload. uv 0.12.13 is the minimum local version; newer versions are allowed. Docker and CI retain their exact uv pin.
 
 ## 5. API and data contract
 

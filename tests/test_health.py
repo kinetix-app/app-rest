@@ -9,6 +9,38 @@ from app.main import create_app
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["basic", "clerk"])
+async def test_factory_loads_settings_once_and_declares_auth_before_startup(
+    settings, monkeypatch, mode
+):
+    settings.auth_mode = mode
+    settings.cors_allowed_origins = ["https://client.example"]
+    loads = []
+
+    def load_settings():
+        loads.append(True)
+        return settings
+
+    monkeypatch.setattr("app.main.Settings", load_settings)
+    app = create_app()
+    assert not hasattr(app.state, "engine")
+    schema = app.openapi()
+    assert schema["components"]["securitySchemes"]["Authentication"]["scheme"] == (
+        "basic" if mode == "basic" else "bearer"
+    )
+    assert schema["paths"]["/api/v1/me"]["get"]["security"] == [{"Authentication": []}]
+    assert "security" not in schema["paths"]["/health/live"]["get"]
+    async with LifespanManager(app):
+        assert app.state.settings is settings
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get(
+                "/health/live", headers={"Origin": "https://client.example"}
+            )
+            assert response.headers["Access-Control-Allow-Origin"] == "https://client.example"
+    assert loads == [True]
+
+
+@pytest.mark.anyio
 async def test_liveness_remains_available_when_database_is_down(settings):
     app = create_app(settings)
     async with LifespanManager(app):

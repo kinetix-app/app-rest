@@ -15,7 +15,7 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 - Use FastAPI, SQLAlchemy async with asyncpg, Alembic, Pydantic v2 and typed settings. Follow the Python pin and uv lockfile.
 - Implement feature packages under `app/features/`. Keep routers thin, use-case/transaction logic in services, and reused complex queries in focused modules. Compose business routes under `/api/v1`.
 - Keep ORM models and create/update/private/public response schemas distinct. Validate bounds, output visibility, errors and PATCH omission/null behavior.
-- Inject identity, settings and sessions. Use application lifespan for pooled resource creation/disposal. One session per request/use case; each concurrent task gets its own session. Load relationships needed for serialization explicitly.
+- Load settings once in `create_app`; launch Uvicorn with `app.main:create_app --factory`. Inject identity, settings and sessions. Use application lifespan for pooled resource creation/disposal. One session per request/use case; each concurrent task gets its own session. Load relationships needed for serialization explicitly.
 - Services define successful commit and failure rollback boundaries. Await async I/O, move blocking computation behind an appropriate execution boundary, and finish database transactions before slow provider calls.
 - Add schema changes through manually reviewed Alembic revisions in `migrations/versions/`, with database constraints and feature model imports in `migrations/env.py`. Verify clean setup and applicable upgrades.
 - Delegate signing-key retrieval, caching and signature/time verification to Clerk’s async SDK using backend-only `CLERK_SECRET_KEY`. The local claims model requires session fields and enforces the configured issuer and native-compatible authorized-party policy.
@@ -25,7 +25,7 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 
 ## Development and packaging
 
-- Use uv for dependency management and commands. Commit manifest and lockfile changes together. The README is the setup/command reference.
+- Use uv for dependency management and commands. Commit manifest and lockfile changes together. The README is the setup/command reference. Use `make setup`, `make dev`, `make migrate` and `make check` for local development; the Makefile wraps locked uv commands. Local uv must be at least 0.12.13; Docker and CI retain their exact pin.
 - Compose runs the packaged API and PostgreSQL by default; start only `postgres` when developing with host uv/Uvicorn. Use host published ports versus Compose service names correctly.
 - An optional `sonar` profile runs a local SonarQube Community server for pre-push analysis through `scripts/sonar-scan.sh`; it uses the embedded database and named volumes and is not part of CI.
 - Add dependency services alongside consuming features. Use dependency-native health checks and healthy-startup conditions, with bounded API liveness/readiness behavior and failure/recovery verification.

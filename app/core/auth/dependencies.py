@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBearer
 
 from app.core.auth.basic import verify_basic
 from app.core.auth.types import AuthenticationUnavailable, InvalidCredentials, VerifiedIdentity
@@ -14,10 +14,7 @@ bearer = HTTPBearer(
 )
 
 
-async def get_verified_identity(
-    request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
-) -> VerifiedIdentity:
+async def get_verified_identity(request: Request) -> VerifiedIdentity:
     if request.app.state.settings.auth_mode == "basic":
         try:
             return verify_basic(
@@ -27,6 +24,7 @@ async def get_verified_identity(
             raise HTTPException(
                 401, "Invalid development credentials", headers={"WWW-Authenticate": "Basic"}
             ) from None
+    credentials = await bearer(request)
     if credentials is None:
         raise HTTPException(
             401, "Bearer session token required", headers={"WWW-Authenticate": "Bearer"}
