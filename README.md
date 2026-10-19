@@ -133,7 +133,7 @@ docker compose up -d --build --wait
 
 Run migrations before starting application traffic. Stop a host API using the same port before switching modes. The container uses `postgres:5432`, waits for a healthy database, runs as UID 10001 with a read-only filesystem and uses the bundled application. Its readiness probe uses Python's standard library.
 
-The Dockerfile installs runtime dependencies in a cached builder layer before copying application source, then installs the package non-editably. Its slim runtime includes the environment and migration inputs. Verify cache reuse when changing packaging or dependencies; update image digests together with documented compatibility checks.
+The Dockerfile installs locked runtime dependencies once in a cached builder layer, then copies the application and migrations into the slim runtime. Source changes do not rebuild dependencies. Verify cache reuse when changing packaging or dependencies; update image digests together with documented compatibility checks.
 
 ## Checks and database changes
 

@@ -13,16 +13,13 @@ WORKDIR /build
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project --no-build
-COPY app ./app
-COPY README.md ./README.md
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable --no-build
 
 FROM base AS runtime
 RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --create-home app
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
+COPY app ./app
 COPY alembic.ini ./alembic.ini
 COPY migrations ./migrations
 USER 10001:10001
