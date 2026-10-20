@@ -11,6 +11,7 @@
 -- updated_at is maintained by SQLAlchemy on updates; there is no database trigger.
 CREATE TABLE users (
     id BIGSERIAL PRIMARY KEY,
+    -- Values: active, blocked, deleted.
     status VARCHAR(16) NOT NULL DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -18,29 +19,29 @@ CREATE TABLE users (
 
 CREATE TABLE auth_accounts (
     id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     issuer VARCHAR(512) NOT NULL,
     subject VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_auth_accounts_user_id_users
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT
+    UNIQUE (issuer, subject)
 );
 
 CREATE INDEX ix_auth_accounts_user_id ON auth_accounts (user_id);
 
 CREATE TABLE profiles (
-    user_id BIGINT NOT NULL PRIMARY KEY,
+    user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     display_name VARCHAR(100),
     timezone VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_profiles_user_id_users
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Proposed feature tables below have not been migrated.
--- Business rules (bounds, valid states, uniqueness and ownership) belong in services.
--- Primary/foreign keys and required columns describe the structural model.
+-- Business rules (bounds, valid states and ownership) belong in services.
+-- Inline PRIMARY KEY, REFERENCES, NOT NULL and UNIQUE declarations define integrity.
+-- No named CONSTRAINT clauses or business-rule CHECKs; validate business rules in services.
+-- Enum-like categories use VARCHAR (or VARCHAR[] for multiple values), not PostgreSQL ENUMs.
+-- Comments document values; proposed vocabularies remain pending product decisions.
 -- Nullable catalogue owners need explicit visibility rules before feature delivery.
 
 -- Nutrition section
@@ -94,6 +95,7 @@ CREATE TABLE nutrition_day (
 CREATE TABLE meal (
     id BIGSERIAL PRIMARY KEY,
     nutrition_day_id BIGINT NOT NULL REFERENCES nutrition_day(id),
+    -- Proposed values: breakfast, lunch, dinner, snack; final meal categories pending.
     meal_type VARCHAR(30) NOT NULL
 );
 
@@ -117,13 +119,6 @@ CREATE TABLE nutrition_goal (
     fats DECIMAL(8,2) NOT NULL
 );
 
--- Available sports and activity types.
-CREATE TABLE sport (
-    id BIGSERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    description TEXT
-);
-
 -- Shared exercise structure for manual entry and optional Ascend imports.
 -- Fields follow Ascend exercise details, using this schema's snake_case convention.
 -- https://docs.ascendapi.com/api-reference/exercisedb-v2/exercises/getexercisebyid
@@ -136,25 +131,30 @@ CREATE TABLE sport (
 CREATE TABLE exercise (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT REFERENCES users(id),
-    sport_id BIGINT NOT NULL REFERENCES sport(id),
+    -- Values: gym, running, cycling, walking. Sprint 1 uses gym.
+    activity_type VARCHAR(30) NOT NULL,
     name TEXT NOT NULL,
     overview TEXT,
     body_parts TEXT[],
     equipments TEXT[],
-    exercise_types TEXT[],
+    -- Provider/manual classification, distinct from activity_type.
+    -- Proposed values: strength, cardio, stretching, mobility; catalogue vocabulary pending.
+    exercise_types VARCHAR(50)[],
     target_muscles TEXT[],
     secondary_muscles TEXT[],
     instructions TEXT[],
     exercise_tips TEXT[],
     variations TEXT[],
     keywords TEXT[],
-    difficulty TEXT,
+    -- Proposed values: beginner, intermediate, advanced; catalogue vocabulary pending.
+    difficulty VARCHAR(20),
     related_exercise_ids TEXT[],
     video_url TEXT,
     image_url TEXT,
 
     gif_urls JSONB,
-    source TEXT NOT NULL DEFAULT 'manual',
+    -- Values: manual, ascend_edb_v1, ascend_edb_v2; extend when another source is added.
+    source VARCHAR(30) NOT NULL DEFAULT 'manual',
     external_id TEXT,
     imported_at TIMESTAMP WITH TIME ZONE
 );
@@ -168,13 +168,22 @@ CREATE TABLE routine (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Exercises included in a routine, with their planned sets, reps and other parameters
+-- Routine exercises mirror session_exercise: exercise reference, order, notes and child sets.
 CREATE TABLE routine_exercise (
     id BIGSERIAL PRIMARY KEY,
     routine_id BIGINT NOT NULL REFERENCES routine(id),
     exercise_id BIGINT NOT NULL REFERENCES exercise(id),
     exercise_order INTEGER NOT NULL,
-    sets INTEGER,
+    notes TEXT
+);
+
+-- Saved defaults for the first workout, or routine slots absent from the previous workout.
+-- Same numbered measurements as exercise_set; completion belongs only to performed sets.
+-- The number of sets is the child-row count, not an aggregate sets column.
+CREATE TABLE routine_exercise_set (
+    id BIGSERIAL PRIMARY KEY,
+    routine_exercise_id BIGINT NOT NULL REFERENCES routine_exercise(id),
+    set_number INTEGER NOT NULL,
     reps INTEGER,
     weight_kg DECIMAL(8,2),
     duration_seconds INTEGER,
@@ -186,7 +195,8 @@ CREATE TABLE training_session (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
     routine_id BIGINT REFERENCES routine(id),
-    sport_id BIGINT NOT NULL REFERENCES sport(id),
+    -- Values: gym, running, cycling, walking. Sprint 1 uses gym.
+    activity_type VARCHAR(30) NOT NULL,
     started_at TIMESTAMP NOT NULL,
     ended_at TIMESTAMP,
     notes TEXT
@@ -196,12 +206,18 @@ CREATE TABLE training_session (
 CREATE TABLE session_exercise (
     id BIGSERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL REFERENCES training_session(id),
+    -- Stable template slot for matching previous results, even after reordering.
+    -- Keep historical exercise/results if the template slot is removed.
+    routine_exercise_id BIGINT REFERENCES routine_exercise(id) ON DELETE SET NULL,
     exercise_id BIGINT NOT NULL REFERENCES exercise(id),
     exercise_order INTEGER NOT NULL,
     notes TEXT
 );
 
--- Actual set results, separate from planned routine values.
+-- Actual set results, separate from saved routine defaults.
+-- On routine load, use the owner's latest completed session for this routine.
+-- Copy its matching set measurements into NEW session rows; reset completed to FALSE.
+-- Use saved routine sets when no matching previous result exists; never reuse history rows.
 CREATE TABLE exercise_set (
     id BIGSERIAL PRIMARY KEY,
     session_exercise_id BIGINT NOT NULL REFERENCES session_exercise(id),
@@ -213,22 +229,12 @@ CREATE TABLE exercise_set (
     completed BOOLEAN NOT NULL DEFAULT FALSE
 );
 
--- Chosen activity targets and periods; remaining product rules are pending.
-CREATE TABLE activity_goal (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(id),
-    sport_id BIGINT REFERENCES sport(id),
-    goal_type VARCHAR(30) NOT NULL,
-    target_value DECIMAL(10,2) NOT NULL,
-    period VARCHAR(20) NOT NULL,
-    start_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    end_date DATE
-);
-
 -- Personal physical goals; metric/unit decisions remain pending.
 CREATE TABLE physical_goal (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
+    -- Values: build_muscle, lose_fat, gain_weight, maintain_weight.
+    -- Target metric/unit and interpretation remain pending DEC-01.
     goal_type VARCHAR(50) NOT NULL,
     target_value DECIMAL(8,2) NOT NULL,
     start_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -236,7 +242,8 @@ CREATE TABLE physical_goal (
     completed_at TIMESTAMP
 );
 
--- Dated observations with explicit units in column names.
+-- User-owned dated observations for overall evolution and physical-goal progress.
+-- Measurements remain available when goals change; units are explicit in column names.
 CREATE TABLE body_measurement (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
@@ -248,13 +255,4 @@ CREATE TABLE body_measurement (
     chest_cm DECIMAL(5,2),
     arm_cm DECIMAL(5,2),
     thigh_cm DECIMAL(5,2)
-);
-
--- Intermediate targets belonging to a physical goal.
-CREATE TABLE goal_milestone (
-    id BIGSERIAL PRIMARY KEY,
-    physical_goal_id BIGINT NOT NULL REFERENCES physical_goal(id),
-    target_value DECIMAL(8,2) NOT NULL,
-    target_date DATE,
-    completed_at TIMESTAMP
 );

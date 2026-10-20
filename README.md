@@ -35,7 +35,7 @@ Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Py
 | `app/core/auth/` | Clerk SDK token verification and current-user dependency |
 | `app/features/accounts/` | Account models, private schemas, provisioning and profile routes |
 | `docs/authentication.md` | Clerk configuration runbook and account/session contract |
-| `db-schema.sql`, `docs/data-model-review.md` | Product schema draft, pending unified serial-ID change, Sprint 1 review and shared manual/imported exercise fields; Alembic remains the runtime schema authority |
+| `db-schema.sql`, `docs/data-model.md`, `docs/data-model-review.md` | Product schema draft, pending unified serial-ID change, Sprint 1 review and shared manual/imported exercise fields; Alembic remains the runtime schema authority |
 | `app/db/` | ORM metadata, engine and request session dependency |
 | `migrations/` | Alembic environment, templates and feature revisions |
 | `tests/` | Configuration, health/lifecycle and PostgreSQL integration checks |
