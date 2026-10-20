@@ -13,21 +13,24 @@ class HealthResponse(BaseModel):
     status: str
 
 
-@router.get("/live", response_model=HealthResponse)
+@router.get("/live")
 async def liveness() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
 @router.get(
     "/ready",
-    response_model=HealthResponse,
-    responses={503: {"model": HealthResponse, "description": "Database unavailable"}},
+    response_model=None,
+    responses={
+        200: {"model": HealthResponse},
+        503: {"model": HealthResponse, "description": "Database unavailable"},
+    },
 )
 async def readiness(request: Request) -> HealthResponse | JSONResponse:
     try:
         async with asyncio.timeout(request.app.state.settings.database_timeout_seconds):
             async with request.app.state.engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
-    except TimeoutError, SQLAlchemyError, OSError:
+    except SQLAlchemyError, OSError:
         return JSONResponse(status_code=503, content={"status": "unavailable"})
     return HealthResponse(status="ok")
