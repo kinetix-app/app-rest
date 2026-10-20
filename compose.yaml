@@ -19,26 +19,21 @@ services:
       retries: 10
 
   api:
-    profiles: [app]
     build:
       context: .
       target: runtime
+    env_file: .env
     environment:
+      # Use the Compose database, even when .env has a host DATABASE_URL override.
+      DATABASE_URL: ""
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
+      # Match PostgreSQL when its credentials are overridden from the shell.
       POSTGRES_USER: ${POSTGRES_USER:-fitness}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-fitness}
-      APP_ENV: ${APP_ENV:-development}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_TIMEOUT_SECONDS: ${DATABASE_TIMEOUT_SECONDS:-2}
-      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
-      CLERK_ISSUER: ${CLERK_ISSUER:-}
-      CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-[]}
-      CLERK_AUDIENCE: ${CLERK_AUDIENCE:-}
-      CLERK_CLOCK_SKEW_SECONDS: ${CLERK_CLOCK_SKEW_SECONDS:-5}
     ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy

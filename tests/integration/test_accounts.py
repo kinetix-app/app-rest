@@ -1,6 +1,7 @@
 import asyncio
+from base64 import b64encode
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -34,6 +35,7 @@ async def account_client(migrated_accounts, clerk_jwks):
     settings = Settings(
         _env_file=None,
         app_env="test",
+        auth_mode="clerk",
         clerk_issuer=issuer,
         clerk_secret_key=SecretStr("sk_test_backend_only"),
         database_url=SecretStr(migrated_accounts.render_as_string(hide_password=False)),
@@ -59,8 +61,109 @@ async def account_client(migrated_accounts, clerk_jwks):
                     await session.commit()
 
 
+@pytest.fixture
+async def basic_account_client(migrated_accounts):
+    username = f"dev-{uuid4().hex}@example.test"
+    other_username = f"dev-{uuid4().hex}@example.test"
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        auth_mode="basic",
+        basic_auth_users={
+            username: SecretStr("integration-password"),
+            other_username: SecretStr("other-integration-password"),
+        },
+        database_url=SecretStr(migrated_accounts.render_as_string(hide_password=False)),
+    )
+    app = create_app(settings)
+    async with LifespanManager(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            try:
+                yield client, app, username, other_username
+            finally:
+                async with app.state.session_factory() as session:
+                    ids = list(
+                        (
+                            await session.scalars(
+                                select(AuthAccount.user_id).where(
+                                    AuthAccount.issuer == "urn:kinetix:dev",
+                                    AuthAccount.subject.in_([username, other_username]),
+                                )
+                            )
+                        ).all()
+                    )
+                    await session.execute(
+                        delete(AuthAccount).where(
+                            AuthAccount.issuer == "urn:kinetix:dev",
+                            AuthAccount.subject.in_([username, other_username]),
+                        )
+                    )
+                    await session.execute(delete(User).where(User.id.in_(ids)))
+                    await session.commit()
+
+
 def headers(signed_token, issuer, **claims):
     return {"Authorization": "Bearer " + signed_token(issuer=issuer, **claims)}
+
+
+@pytest.mark.anyio
+async def test_development_basic_auth_provisions_account_over_me_endpoint(basic_account_client):
+    client, app, username, _ = basic_account_client
+    token = b64encode(f"{username}:integration-password".encode()).decode()
+    response = await client.get("/api/v1/me", headers={"Authorization": f"Basic {token}"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "active"
+    account_id = response.json()["id"]
+    auth = {"Authorization": f"Basic {token}"}
+    updated = await client.patch(
+        "/api/v1/me/profile", headers=auth, json={"display_name": "Basic test user"}
+    )
+    assert updated.status_code == 200
+    repeated = await client.get("/api/v1/me", headers=auth)
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == account_id
+    assert repeated.json()["profile"]["display_name"] == "Basic test user"
+    wrong = b64encode(f"{username}:wrong-password".encode()).decode()
+    rejected = await client.get("/api/v1/me", headers={"Authorization": f"Basic {wrong}"})
+    assert rejected.status_code == 401
+    assert rejected.headers["WWW-Authenticate"] == "Basic"
+    async with app.state.session_factory() as session:
+        mapping = await session.scalar(
+            select(AuthAccount).where(
+                AuthAccount.issuer == "urn:kinetix:dev", AuthAccount.subject == username
+            )
+        )
+        assert mapping is not None
+
+
+@pytest.mark.anyio
+async def test_basic_accounts_are_isolated_and_blocked_accounts_stay_denied(basic_account_client):
+    client, app, username, other_username = basic_account_client
+    first = {
+        "Authorization": "Basic " + b64encode(f"{username}:integration-password".encode()).decode()
+    }
+    second = {
+        "Authorization": "Basic "
+        + b64encode(f"{other_username}:other-integration-password".encode()).decode()
+    }
+    alice = await client.patch("/api/v1/me/profile", headers=first, json={"display_name": "Alice"})
+    bob = await client.get("/api/v1/me", headers=second)
+    assert alice.status_code == bob.status_code == 200
+    assert alice.json()["id"] != bob.json()["id"]
+    assert bob.json()["profile"]["display_name"] is None
+    assert (await client.get("/api/v1/me", headers=first)).json()["profile"][
+        "display_name"
+    ] == "Alice"
+    async with app.state.session_factory() as session:
+        user = await session.get(User, UUID(alice.json()["id"]))
+        assert user is not None
+        user.status = "blocked"
+        await session.commit()
+    assert (await client.get("/api/v1/me", headers=first)).status_code == 403
+    assert (await client.get("/api/v1/me", headers=second)).json()["id"] == bob.json()["id"]
 
 
 @pytest.mark.anyio

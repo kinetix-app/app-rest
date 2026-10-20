@@ -10,9 +10,22 @@ Read this guide and [AGENTS.md](AGENTS.md), inspect the implementation and follo
 
 The management repository owns product scope, sprint commitments, diagrams and architecture decisions, including ADR-002. This repository owns runtime services, migrations, application packaging and setup instructions. Documentation is in English; relative links stay within this repository.
 
+## Quickstart
+
+Install Docker with Compose v2, uv **0.12.13 or newer**, and Make. Docker/CI keep an exact uv pin for reproducible builds. uv manages Python using `.python-version`.
+
+For a fresh checkout, copy `.env.example` to `.env`; keep any existing local `.env`. Set `POSTGRES_PASSWORD` and configure `BASIC_AUTH_USERS` with your own development email/password before signing in.
+
+```sh
+make setup
+make dev
+```
+
+Open [API docs](http://127.0.0.1:8000/docs). Development uses Basic authentication by default. Clerk testing and production configuration are covered in [authentication setup](docs/authentication.md).
+
 ## Stack and structure
 
-Python **3.14.6**, uv **0.12.13** (supported local range: 0.12.x), FastAPI, Pydantic v2/settings, SQLAlchemy async with asyncpg, Alembic, Uvicorn, Ruff, pytest and HTTPX. PostgreSQL **18.6** is served by a pinned Compose image. Resolved Python dependency versions are in `uv.lock`; Docker base/tool/service images are pinned by digest.
+Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Pydantic v2/settings, SQLAlchemy async with asyncpg, Alembic, Uvicorn, Ruff, pytest and HTTPX. PostgreSQL **18.6** is served by a pinned Compose image. Resolved Python dependency versions are in `uv.lock`; Docker base/tool/service images are pinned by digest.
 
 | Location | Purpose |
 |---|---|
@@ -35,33 +48,57 @@ Implement feature packages under `app/features/` as their tasks are delivered. K
 
 Follow [Clerk dashboard and backend setup](docs/authentication.md) to finish configuring Google, Apple and Email OTP, set `CLERK_ISSUER` and backend-only `CLERK_SECRET_KEY`, apply the account migration and exercise the private APIs. The backend validates Clerk session tokens and atomically provisions an internal user UUID on first valid access. `GET /api/v1/me` reads/bootstrap the account; `PATCH /api/v1/me/profile` edits display name/timezone.
 
-Without a Clerk issuer and secret key, development/test health routes still work and bearer-authenticated feature requests return 503; production startup requires both. No provider tenant has been configured by this implementation. Native sign-in, session/logout integration, linking and deletion synchronization remain outstanding under [ACC01](https://github.com/kinetix-app/app-rest/issues/1).
+With `AUTH_MODE=clerk`, missing Clerk configuration makes protected requests return 503; production startup requires both. Production provider configuration and native session/device demonstrations still need verification; account linking and deletion synchronization remain outstanding under [ACC01](https://github.com/kinetix-app/app-rest/issues/1).
 
-## Develop with Compose dependencies and a host API
+## Development email/password sign-in
 
-Install uv and Docker with Compose v2 supporting `--wait`. Run commands from the backend checkout. uv uses `.python-version` and manages the project's environment.
+The frontend Basic form needs the [DEV01 adapter](https://github.com/kinetix-app/app-rest/issues/7). In the ignored backend `.env`, configure your local credentials (Basic is the default outside production):
 
-1. Copy configuration and choose a local development password before starting PostgreSQL:
+```dotenv
+APP_ENV=development
+BASIC_AUTH_USERS={"your-email@example.test":"choose-your-own-local-password"}
+```
 
-   ```sh
-   cp .env.example .env
-   ```
+Restart the API after changing these settings. Sign in with that exact email/password in the development app. There are no built-in accounts. Valid Basic credentials resolve a synthetic `urn:kinetix:dev` identity through the existing local account/profile service; the database must be running and migrations applied. Wrong credentials return 401 with a Basic challenge. Existing blocked/deleted accounts remain denied.
 
-2. Start PostgreSQL, synchronize the locked environment and apply the migration chain:
+`AUTH_MODE` defaults to `basic` in development/test and `clerk` in production. Set `AUTH_MODE=clerk` to test Clerk locally: it accepts only Clerk Bearer tokens and never falls back to development credentials. Production rejects `basic` at startup. Basic sign-out clears the app's in-memory header; it creates no Clerk session. Do not put development passwords in the frontend's public environment or commit them.
 
-   ```sh
-   docker compose up -d --wait postgres
-   uv sync --locked --no-build
-   uv run --locked --no-build alembic upgrade head
-   ```
+### Check the running API
 
-3. Start the development server:
+After starting the API and applying migrations, use your configured username below.
+`curl` prompts for the password so it does not appear in shell history:
 
-   ```sh
-   uv run --locked --no-build uvicorn app.main:app --reload --no-access-log
-   ```
+```sh
+curl -i http://localhost:8000/api/v1/me
+curl -i --user 'your-email@example.test' http://localhost:8000/api/v1/me
+```
 
-Open [API docs](http://127.0.0.1:8000/docs). `/health/live` returns 200 when the API responds. `/health/ready` performs a bounded PostgreSQL query and returns 200 or 503. Application request logs include generated request IDs, route templates, status and duration; query strings and bodies are kept out of those logs.
+The first request must return **401** with `WWW-Authenticate: Basic`. The second must
+return **200** with an active account. Repeat it with a wrong password: it must return
+**401**. Repeat with the correct password: the account UUID must stay the same.
+A **500** after correct credentials can indicate unapplied migrations; check API logs.
+
+## Development commands
+
+The [Makefile](Makefile) wraps the existing uv and Compose commands. It uses the host API with automatic reload and starts only PostgreSQL in Docker. Run commands from this checkout; `make` is available on macOS/Linux and through WSL or GNU Make on Windows.
+
+| Command | Purpose |
+|---|---|
+| `make setup` | Install locked development dependencies, start PostgreSQL and apply migrations |
+| `make dev` | Ensure PostgreSQL is healthy and start Uvicorn with reload |
+| `make migrate` | Apply migrations after pulling schema changes |
+| `make check` | Check the lockfile, Ruff lint/format and non-integration tests |
+| `make db` | Start PostgreSQL alone |
+
+After first setup, use `make dev` for daily work. Re-run `make setup` when dependencies change, or `make migrate` when migrations change. Stop Uvicorn with Ctrl-C; PostgreSQL keeps its data in a named volume. Stop PostgreSQL with `docker compose stop postgres`.
+
+Without Make, the equivalent API command is:
+
+```sh
+uv run --locked --no-build uvicorn app.main:create_app --factory --reload --no-access-log
+```
+
+The factory loads and validates one settings object. Database resources are created and disposed during the application lifespan. `/health/live` reports whether the API responds; `/health/ready` checks PostgreSQL with a configured query timeout. Request logs include IDs, route templates, status and duration, excluding query strings and bodies.
 
 ### Configuration
 
@@ -75,6 +112,10 @@ Open [API docs](http://127.0.0.1:8000/docs). `/health/live` returns 200 when the
 | `POSTGRES_PORT` | `5432` on the host; change for local port conflicts; container connections use 5432 |
 | `DATABASE_URL` | Optional complete `postgresql+asyncpg` URL; takes precedence in the host application |
 | `API_PORT` | Compose API host port, default 8000 |
+| `API_BIND_ADDRESS` | Host interface for the Compose API; default `127.0.0.1`; set to `0.0.0.0` for physical devices on your LAN |
+| `CORS_ALLOWED_ORIGINS` | JSON array of browser origins allowed to call the API; defaults to `["http://localhost:8081"]` |
+| `AUTH_MODE` | Blank: Basic outside production, Clerk in production; optional `basic` / `clerk` override |
+| `BASIC_AUTH_USERS` | JSON object of local usernames/passwords; empty by default, so no Basic account can sign in |
 | `APP_ENV` | `development`, `test` or `production`; default development |
 | `LOG_LEVEL` | Python application logging level, default INFO |
 | `DATABASE_TIMEOUT_SECONDS` | Connection/readiness timeout, default 2; greater than 0 and at most 30 |
@@ -85,23 +126,23 @@ Open [API docs](http://127.0.0.1:8000/docs). `/health/live` returns 200 when the
 | `SONAR_CLOUD_TOKEN` | Optional SonarCloud token used by the `sonarqube-issues` skill |
 | `SONAR_ORGANIZATION` | SonarCloud organization key used by the `sonarqube-issues` skill; defaults to `kinetix-app` in `.env.example` |
 
-The component settings construct database URLs safely when passwords contain reserved characters. Encode credentials when providing a complete URL. Compose explicitly supplies component settings to its API service; host `DATABASE_URL` overrides remain local. Keep credentials outside version control.
+The component settings construct database URLs safely when passwords contain reserved characters. Encode credentials when providing a complete URL. Compose reads the same `.env` through `env_file`, overriding only the database connection to use `postgres:5432`; host `DATABASE_URL` overrides remain local. Keep credentials outside version control.
 
 `API_PORT` controls container publishing. For a different host-run API port, pass Uvicorn `--port`. Development dependency ports bind to loopback. When testing with a physical frontend device, explicitly choose the host API bind address and the device-reachable API URL for that demonstration.
 
 ## Run the packaged API
 
-The optional Compose `app` profile runs the API image alongside PostgreSQL:
+The default Compose services run the API image alongside PostgreSQL:
 
 ```sh
 docker compose up -d --wait postgres
 docker compose run --rm --build api alembic upgrade head
-docker compose --profile app up -d --build --wait
+docker compose up -d --build --wait
 ```
 
 Run migrations before starting application traffic. Stop a host API using the same port before switching modes. The container uses `postgres:5432`, waits for a healthy database, runs as UID 10001 with a read-only filesystem and uses the bundled application. Its readiness probe uses Python's standard library.
 
-The Dockerfile installs runtime dependencies in a cached builder layer before copying application source, then installs the package non-editably. Its slim runtime includes the environment and migration inputs. Verify cache reuse when changing packaging or dependencies; update image digests together with documented compatibility checks.
+The Dockerfile installs locked runtime dependencies once in a cached builder layer, then copies the application and migrations into the slim runtime. Source changes do not rebuild dependencies. Verify cache reuse when changing packaging or dependencies; update image digests together with documented compatibility checks.
 
 ## Checks and database changes
 
@@ -131,7 +172,7 @@ uv run --locked --no-build alembic upgrade head
 uv run --locked --no-build alembic check
 ```
 
-Feature revisions belong in `migrations/versions/`. The foundation starts with empty domain metadata; upgrading currently initializes Alembic's version tracking. Add the initial product schema with the first agreed feature. Review constraints, renames, data changes and applicable upgrade paths.
+Feature revisions belong in `migrations/versions/`. The migration chain includes the account, identity and profile tables. Review constraints, renames, data changes and applicable upgrade paths.
 
 ## Local static analysis with SonarQube (optional)
 
@@ -210,11 +251,11 @@ Run the checks above before requesting review. Keep CI commands, version pins an
 ```sh
 docker compose ps
 docker compose logs --tail=100 postgres
-docker compose --profile app logs --tail=100 api
-docker compose --profile app down
+docker compose logs --tail=100 api
+docker compose down
 ```
 
-PostgreSQL is checked with `pg_isready`; API readiness queries it using application credentials. Health failures should lead to checking the connection hostname/port, credentials and database logs. Health checks handle startup ordering; the API also returns bounded readiness failures and can reconnect after the database returns.
+PostgreSQL is checked with `pg_isready`; API readiness queries it using application credentials. Health failures should lead to checking the connection hostname/port, credentials and database logs. Health checks handle startup ordering; readiness reports database failures and recovers after the database returns. A paused PostgreSQL process can delay pooled-connection cleanup beyond `DATABASE_TIMEOUT_SECONDS` (observed past 15 seconds); the container health check has its own external timeout. Stopping/restarting PostgreSQL was verified separately from this paused-process limitation.
 
 Normal shutdown preserves the named data volumes. Existing volumes retain their initialized credentials; changing `.env` does not change an existing database role. Redact sensitive output before sharing diagnostics. Resetting a volume is a deliberate data-deletion operation.
 

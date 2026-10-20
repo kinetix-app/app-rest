@@ -5,11 +5,11 @@ from dataclasses import dataclass
 class VerifiedIdentity:
     issuer: str
     subject: str
-    session_id: str
+    session_id: str | None
 
 
 class InvalidCredentials(Exception):
-    """The supplied credential is not an accepted user session."""
+    """The supplied credential is not an accepted user identity."""
 
 
 class AuthenticationUnavailable(Exception):

@@ -1,12 +1,31 @@
 # Clerk authentication and account setup (ACC01)
 
-Tracking issue: [kinetix-app/app-rest#1](https://github.com/kinetix-app/app-rest/issues/1). This backend increment implements token validation, first-access account creation, private account reads and profile edits. Clerk dashboard configuration, native sign-in and device/session demonstrations still need completion. Google, Apple and Email OTP all yield Clerk session tokens and use the same API path.
+Tracking issue: [kinetix-app/app-rest#1](https://github.com/kinetix-app/app-rest/issues/1). This backend increment implements token validation, first-access account creation, private account reads and profile edits. The [frontend integration](https://github.com/kinetix-app/app/issues/7) implements SDK email OTP and Google/Apple OAuth with secure native session storage; production dashboard configuration and real provider/device demonstrations still need verification. Google, Apple and Email OTP all yield Clerk session tokens and use the same API path.
+
+## Local development without Clerk
+
+For development email/password sign-in, use `AUTH_MODE=basic` and a `BASIC_AUTH_USERS` JSON object mapping your local email/usernames to passwords in the ignored backend environment. See [development setup](../README.md#development-emailpassword-sign-in). No credentials are enabled by default. The adapter feeds the same UUID resolution and authorization checks as Clerk, using issuer `urn:kinetix:dev`. It does not create a SaaS session or mock fitness data. Basic is the default in development/test; production defaults to Clerk and refuses Basic. Set `AUTH_MODE=clerk` to test Clerk locally.
+
+## Production environment
+
+Configure the existing Clerk production instance and enable Email OTP, Google and Apple before releasing. Keep both repositories on that same instance:
+
+```dotenv
+APP_ENV=production
+AUTH_MODE=clerk
+CLERK_ISSUER=https://your-production-clerk-frontend-api
+CLERK_SECRET_KEY=sk_live_...
+CLERK_AUTHORIZED_PARTIES=[]
+BASIC_AUTH_USERS={}
+```
+
+Use the exact HTTPS Frontend API origin from Clerk, production database settings and explicit migrations. Add trusted browser origins to the authorized-party allowlist when the session contains `azp`; native tokens may omit it. Startup rejects Basic mode and missing issuer/secret. The frontend release uses `pk_live_...` and the deployed HTTPS API origin. See the [frontend setup guide](https://github.com/kinetix-app/app/blob/feature/env01-clerk-authentication/docs/clerk-setup.md) for dashboard/provider settings and callback registration. Secrets remain in the backend deployment environment or secret manager.
 
 ## 1. Configure the development instance
 
 1. Create a Kinetix application in the [Clerk Dashboard](https://dashboard.clerk.com/). Start with the development instance; keep production configuration and accounts separate.
 2. Under **User & authentication**, enable email sign-up/sign-in with **email verification codes**. Disable passwords and email verification links before creating pilot users. Disabling passwords does not stop existing password users from using them. Leave other methods outside the agreed initial scope. [Authentication settings](https://clerk.com/docs/guides/configure/auth-strategies/sign-up-sign-in-options)
-3. Under **Native applications**, enable the Native API and register the intended applications. Choose stable identifiers before generating provider credentials. The current frontend uses provisional `com.example.kinetix` identifiers and the `kinetix` scheme; coordinate final values in the frontend repository. [Expo quickstart](https://clerk.com/docs/expo/getting-started/quickstart)
+3. Under **Native applications**, enable the Native API and register the intended applications. Choose stable identifiers before generating provider credentials. The current frontend uses `cat.udl.kinetix` identifiers and the `kinetix` scheme; coordinate final values in the frontend repository. [Expo quickstart](https://clerk.com/docs/expo/getting-started/quickstart)
 4. From **API keys**, copy the public publishable key to the frontend's ignored environment as `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...`. Obtain the instance's exact **Frontend API URL** for the backend issuer, for example `https://your-instance.clerk.accounts.dev`.
 5. Keep Clerk's ordinary session-token claims unchanged: `iss`, `sub`, `sid`, `exp`, `nbf`, `iat`. The app should call its SDK's ordinary `getToken()` and attach that session token; no custom JWT template is needed for these APIs.
 
@@ -37,6 +56,7 @@ Source: [Clerk native Apple setup](https://clerk.com/docs/expo/guides/configure/
 Add these values to the ignored backend `.env` (example only):
 
 ```dotenv
+AUTH_MODE=clerk
 CLERK_ISSUER=https://your-instance.clerk.accounts.dev
 CLERK_SECRET_KEY=sk_test_...
 CLERK_AUTHORIZED_PARTIES=[]
@@ -49,24 +69,18 @@ CLERK_CLOCK_SKEW_SECONDS=5
 
 `CLERK_AUTHORIZED_PARTIES` is a JSON list of exact permitted **token `azp` values**, not the API's CORS allowlist. Native session tokens can omit `azp`; those are accepted after all other checks. If `azp` is present it must match the configured list, so `[]` rejects every token with `azp`. During the pilot, inspect only the required claim values locally and set actual permitted origins; never log/share a complete bearer token. For example, a web preview may require `["http://localhost:8081"]` if that exact value is issued. [Clerk verification rules](https://clerk.com/docs/guides/sessions/manual-jwt-verification)
 
-Run from the backend repository using its pinned uv:
+Run from the backend repository using uv 0.12.13 or newer:
 
 ```sh
 uv sync --locked --no-build
 docker compose up -d --wait postgres
 uv run --locked --no-build alembic upgrade head
-uv run --locked --no-build uvicorn app.main:app --reload --no-access-log
+uv run --locked --no-build uvicorn app.main:create_app --factory --reload --no-access-log
 ```
 
-Compose's optional `app` profile passes the same Clerk settings into the packaged API. The backend needs outbound HTTPS access to its configured Clerk instance. Migration commands need only the database settings in development; production settings validation still requires the issuer.
+Compose passes the same `.env` Clerk settings into the packaged API. The backend needs outbound HTTPS access to its configured Clerk instance. Migration commands need only the database settings in development; production settings validation still requires the issuer.
 
-If the installed uv is older than the repository's pin, run the pinned version without changing the project requirement:
-
-```sh
-uv tool run --from uv==0.12.13 uv sync --project . --locked --no-build
-```
-
-For production, create/configure the separate Clerk production instance, satisfy Clerk's domain/DNS requirements, use production provider credentials and publishable key, and set the backend to that instance's issuer. Confirm session limits and email behavior on the chosen plan. [Production setup](https://clerk.com/docs/guides/development/deployment/production)
+For daily development, `make setup` installs dependencies and applies migrations, and `make dev` starts the API with reload. uv 0.12.13 is the minimum local version; newer versions are allowed. Docker and CI retain their exact uv pin.
 
 ## 5. API and data contract
 
