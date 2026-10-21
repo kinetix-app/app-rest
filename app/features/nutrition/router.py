@@ -1,10 +1,8 @@
-
 from fastapi import APIRouter, HTTPException, status
-
 
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
-from app.features.nutrition.schemas import FoodCreate, FoodResponse, FoodPatch
+from app.features.nutrition.schemas import FoodCreate, FoodPatch, FoodResponse
 from app.features.nutrition.service import create_food, delete_food, get_food, update_food
 
 router = APIRouter(prefix="/foods", tags=["nutrition"])
@@ -34,7 +32,6 @@ async def remove_food(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Food not found",
         )
-
 
 
 # Endpoint to retrieve a food item by its ID for the authenticated user

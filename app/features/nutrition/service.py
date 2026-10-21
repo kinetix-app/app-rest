@@ -1,10 +1,8 @@
-
-from sqlalchemy import insert, delete, select, update
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 from app.features.nutrition.models import food
-from app.features.nutrition.schemas import FoodCreate, FoodResponse, FoodPatch
+from app.features.nutrition.schemas import FoodCreate, FoodPatch
 
 
 # Service functions for managing food items in the database
@@ -65,12 +63,9 @@ async def get_food(
     user_id: int,
     food_id: int,
 ):
-    stmt = (
-        select(food)
-        .where(
-            food.c.id == food_id,
-            food.c.user_id == user_id,
-        )
+    stmt = select(food).where(
+        food.c.id == food_id,
+        food.c.user_id == user_id,
     )
 
     result = await db.execute(stmt)
