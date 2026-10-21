@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.config import Settings
 from app.db.base import Base
 from app.features.accounts import models  # noqa: F401
+from app.features.goals import models as goal_models  # noqa: F401
+from app.features.nutrition import models as nutrition_models  # noqa: F401
+from app.features.training import models as training_models  # noqa: F401
 
 # Import implemented feature models here so autogenerate sees their tables.
 target_metadata = Base.metadata
@@ -49,5 +52,7 @@ async def run_migrations_online() -> None:
 
 if context.is_offline_mode():
     run_migrations_offline()
+elif connection := context.config.attributes.get("connection"):
+    do_run_migrations(connection)
 else:
     asyncio.run(run_migrations_online())

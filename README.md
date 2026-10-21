@@ -2,7 +2,7 @@
 
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.
 
-The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Other feature schemas evolve through the GitHub backlog.
+The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`; their APIs and business rules evolve through the GitHub backlog.
 
 ## Start here
 
@@ -35,7 +35,7 @@ Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Py
 | `app/core/auth/` | Clerk SDK token verification and current-user dependency |
 | `app/features/accounts/` | Account models, private schemas, provisioning and profile routes |
 | `docs/authentication.md` | Clerk configuration runbook and account/session contract |
-| `db-schema.sql`, `docs/data-model.md`, `docs/data-model-review.md` | Product schema draft, pending unified serial-ID change, Sprint 1 review and shared manual/imported exercise fields; Alembic remains the runtime schema authority |
+| `db-schema.sql`, `docs/data-model.md`, `docs/data-model-review.md` | Product schema reference, data-model diagram and Sprint 1 review; Alembic remains the runtime schema authority |
 | `app/db/` | ORM metadata, engine and request session dependency |
 | `migrations/` | Alembic environment, templates and feature revisions |
 | `tests/` | Configuration, health/lifecycle and PostgreSQL integration checks |
@@ -47,7 +47,7 @@ Implement feature packages under `app/features/` as their tasks are delivered. K
 
 ## Authentication setup
 
-Follow [Clerk dashboard and backend setup](docs/authentication.md) to finish configuring Google, Apple and Email OTP, set `CLERK_ISSUER` and backend-only `CLERK_SECRET_KEY`, apply the account migration and exercise the private APIs. The backend validates Clerk session tokens and atomically provisions an internal user UUID on first valid access. `GET /api/v1/me` reads/bootstrap the account; `PATCH /api/v1/me/profile` edits display name/timezone.
+Follow [Clerk dashboard and backend setup](docs/authentication.md) to finish configuring Google, Apple and Email OTP, set `CLERK_ISSUER` and backend-only `CLERK_SECRET_KEY`, apply the account migration and exercise the private APIs. The backend validates Clerk session tokens and atomically provisions an internal generated integer ID on first valid access. `GET /api/v1/me` reads/bootstrap the account; `PATCH /api/v1/me/profile` edits display name/timezone.
 
 With `AUTH_MODE=clerk`, missing Clerk configuration makes protected requests return 503; production startup requires both. Production provider configuration and native session/device demonstrations still need verification; account linking and deletion synchronization remain outstanding under [ACC01](https://github.com/kinetix-app/app-rest/issues/1).
 
@@ -76,7 +76,7 @@ curl -i --user 'your-email@example.test' http://localhost:8000/api/v1/me
 
 The first request must return **401** with `WWW-Authenticate: Basic`. The second must
 return **200** with an active account. Repeat it with a wrong password: it must return
-**401**. Repeat with the correct password: the account UUID must stay the same.
+**401**. Repeat with the correct password: the account ID must stay the same.
 A **500** after correct credentials can indicate unapplied migrations; check API logs.
 
 ## Development commands
@@ -173,7 +173,22 @@ uv run --locked --no-build alembic upgrade head
 uv run --locked --no-build alembic check
 ```
 
-Feature revisions belong in `migrations/versions/`. The migration chain includes the account, identity and profile tables. Review constraints, renames, data changes and applicable upgrade paths.
+Feature revisions belong in `migrations/versions/`. The migration chain creates all 19 tables from `db-schema.sql`, with SQLAlchemy metadata in
+`app/features/accounts/`, `nutrition/`, `training/` and `goals/`. The latter three packages
+currently define persistence tables only; their APIs and business validation are future feature work.
+Existing account constraints remain in place, including the user-status CHECK.
+
+Revision `20261021_01` converts existing account UUIDs to generated BIGINT IDs while
+preserving identities, statuses, timestamps and profile relationships. Stop API traffic,
+back up an existing database and deploy the integer-ID backend together with
+`make migrate`. `/api/v1/me` now returns a JSON integer `id`; clients must refresh any
+cached UUID account IDs. Revision `20261021_02` then creates the nutrition, training
+and goal tables. Fresh databases run the same complete chain.
+
+Downgrading below `20261021_02` drops the product tables and their data. Downgrading
+`20261021_01` preserves account data and relationships but generates new UUIDs;
+restoring the original UUID values requires the pre-upgrade backup. Review constraints,
+renames, data changes and applicable upgrade paths.
 
 ## Local static analysis with SonarQube (optional)
 

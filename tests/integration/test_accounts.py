@@ -1,7 +1,7 @@
 import asyncio
 from base64 import b64encode
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -117,6 +117,7 @@ async def test_development_basic_auth_provisions_account_over_me_endpoint(basic_
     assert response.status_code == 200
     assert response.json()["status"] == "active"
     account_id = response.json()["id"]
+    assert isinstance(account_id, int) and account_id > 0
     auth = {"Authorization": f"Basic {token}"}
     updated = await client.patch(
         "/api/v1/me/profile", headers=auth, json={"display_name": "Basic test user"}
@@ -158,7 +159,7 @@ async def test_basic_accounts_are_isolated_and_blocked_accounts_stay_denied(basi
         "display_name"
     ] == "Alice"
     async with app.state.session_factory() as session:
-        user = await session.get(User, UUID(alice.json()["id"]))
+        user = await session.get(User, alice.json()["id"])
         assert user is not None
         user.status = "blocked"
         await session.commit()
@@ -239,9 +240,7 @@ async def test_denied_identities_are_never_recreated(account_client, signed_toke
     client, app, issuer = account_client
     credential = headers(signed_token, issuer)
     response = await client.get("/api/v1/me", headers=credential)
-    from uuid import UUID
-
-    user_id = UUID(response.json()["id"])
+    user_id = response.json()["id"]
     async with app.state.session_factory() as session:
         await session.execute(update(User).where(User.id == user_id).values(status=status))
         await session.commit()

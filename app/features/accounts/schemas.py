@@ -1,5 +1,4 @@
 from datetime import datetime
-from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -31,7 +30,7 @@ class ProfileResponse(BaseModel):
 
 
 class AccountResponse(BaseModel):
-    id: UUID
+    id: int
     status: str
     created_at: datetime
     profile: ProfileResponse

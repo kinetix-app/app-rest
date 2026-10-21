@@ -1,6 +1,6 @@
--- Product schema draft for DAT01; this file is not an Alembic migration.
--- Account fields originate in revision 20261013_01; this draft unifies local IDs as BIGINT.
--- Runtime accounts still use UUIDs and their existing constraints until a follow-up migration.
+-- Product schema reference for DAT01; this file is not an Alembic migration.
+-- Revisions 20261021_01 and 20261021_02 initialize this BIGINT-based schema.
+-- Existing account constraints from 20261013_01 are retained, including the status CHECK.
 -- Apply migrations through `make migrate`, not by loading this draft into the app DB.
 -- Sprint 1 assessment and AscendAPI import proposal: docs/data-model-review.md.
 
@@ -36,7 +36,7 @@ CREATE TABLE profiles (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Proposed feature tables below have not been migrated.
+-- Feature persistence tables below are migrated; APIs/business rules remain feature work.
 -- Business rules (bounds, valid states and ownership) belong in services.
 -- Inline PRIMARY KEY, REFERENCES, NOT NULL and UNIQUE declarations define integrity.
 -- No named CONSTRAINT clauses or business-rule CHECKs; validate business rules in services.

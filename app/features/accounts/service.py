@@ -1,5 +1,3 @@
-from uuid import UUID, uuid4
-
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +32,7 @@ async def resolve_user(session: AsyncSession, identity: VerifiedIdentity) -> Use
         if user is None:
             try:
                 async with session.begin_nested():
-                    user = User(id=uuid4(), status="active")
+                    user = User(status="active")
                     session.add(user)
                     await session.flush()
                     session.add_all(
@@ -59,7 +57,7 @@ async def resolve_user(session: AsyncSession, identity: VerifiedIdentity) -> Use
         raise
 
 
-async def read_account(session: AsyncSession, user_id: UUID) -> AccountResponse:
+async def read_account(session: AsyncSession, user_id: int) -> AccountResponse:
     user = await session.get(User, user_id, populate_existing=True)
     if user is None:
         raise AccountDenied
@@ -76,7 +74,7 @@ async def read_account(session: AsyncSession, user_id: UUID) -> AccountResponse:
 
 
 async def update_profile(
-    session: AsyncSession, user_id: UUID, changes: ProfilePatch
+    session: AsyncSession, user_id: int, changes: ProfilePatch
 ) -> AccountResponse:
     try:
         user = await session.scalar(select(User).where(User.id == user_id).with_for_update())

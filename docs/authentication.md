@@ -4,7 +4,7 @@ Tracking issue: [kinetix-app/app-rest#1](https://github.com/kinetix-app/app-rest
 
 ## Local development without Clerk
 
-For development email/password sign-in, use `AUTH_MODE=basic` and a `BASIC_AUTH_USERS` JSON object mapping your local email/usernames to passwords in the ignored backend environment. See [development setup](../README.md#development-emailpassword-sign-in). No credentials are enabled by default. The adapter feeds the same UUID resolution and authorization checks as Clerk, using issuer `urn:kinetix:dev`. It does not create a SaaS session or mock fitness data. Basic is the default in development/test; production defaults to Clerk and refuses Basic. Set `AUTH_MODE=clerk` to test Clerk locally.
+For development email/password sign-in, use `AUTH_MODE=basic` and a `BASIC_AUTH_USERS` JSON object mapping your local email/usernames to passwords in the ignored backend environment. See [development setup](../README.md#development-emailpassword-sign-in). No credentials are enabled by default. The adapter feeds the same integer-ID resolution and authorization checks as Clerk, using issuer `urn:kinetix:dev`. It does not create a SaaS session or mock fitness data. Basic is the default in development/test; production defaults to Clerk and refuses Basic. Set `AUTH_MODE=clerk` to test Clerk locally.
 
 ## Production environment
 
@@ -87,7 +87,7 @@ For daily development, `make setup` installs dependencies and applies migrations
 ```text
 Google / Apple / Email OTP -> Clerk session
 Expo app -> Authorization: Bearer <Clerk session JWT> -> FastAPI
-FastAPI -> verified issuer/subject -> local user UUID -> owned business operations
+FastAPI -> verified issuer/subject -> local integer user ID -> owned business operations
 ```
 
 The verifier accepts only RS256 session JWTs with required time/user/session claims, the exact configured issuer and permitted `azp` when present. Pending sessions and machine/API-key credentials are rejected.
@@ -100,11 +100,11 @@ See the [Python SDK source](https://github.com/clerk/clerk-sdk-python/tree/main/
 
 | Table | Ownership and constraints |
 |---|---|
-| `users` | Internal UUID; active/blocked/deleted status; UTC-aware timestamps |
-| `auth_accounts` | UUID; user FK; unique `(issuer, subject)`; deletion restricted to preserve identity denial |
+| `users` | Generated BIGINT; active/blocked/deleted status; UTC-aware timestamps |
+| `auth_accounts` | Generated BIGINT; user FK; unique `(issuer, subject)`; deletion restricted to preserve identity denial |
 | `profiles` | One row per user; nullable display name/timezone; timestamps |
 
-Provisioning writes all three records inside one transaction/savepoint, after token validation. Concurrent first requests resolve the same UUID; a losing mapping insert rolls back its provisional user/profile. Existing profiles are never overwritten from provider claims. PostgreSQL's default READ COMMITTED isolation is required for conflict recovery. Multiple methods linked to one Clerk user resolve the same mapping; separate Clerk users are never merged by email.
+Provisioning writes all three records inside one transaction/savepoint, after token validation. Concurrent first requests resolve the same integer ID; a losing mapping insert rolls back its provisional user/profile. Existing profiles are never overwritten from provider claims. PostgreSQL's default READ COMMITTED isolation is required for conflict recovery. Multiple methods linked to one Clerk user resolve the same mapping; separate Clerk users are never merged by email.
 
 ### GET /api/v1/me
 
@@ -112,7 +112,7 @@ First valid access intentionally creates a minimal local account. Subsequent acc
 
 ```json
 {
-  "id": "<internal-user-uuid>",
+  "id": 1,
   "status": "active",
   "created_at": "<UTC timestamp>",
   "profile": {
@@ -129,7 +129,7 @@ First valid access intentionally creates a minimal local account. Subsequent acc
 {"display_name": "Alice", "timezone": "Europe/Madrid"}
 ```
 
-Returns the same private account response. Omitted fields stay unchanged; explicit `null` clears a field. Display name is trimmed and limited to 1–100 characters when supplied. Timezone must be a valid IANA identifier. Unknown fields, including a submitted user ID/status, return 422. Empty `{}` is a no-op. The authenticated UUID supplies ownership; users cannot choose another account.
+Returns the same private account response. Omitted fields stay unchanged; explicit `null` clears a field. Display name is trimmed and limited to 1–100 characters when supplied. Timezone must be a valid IANA identifier. Unknown fields, including a submitted user ID/status, return 422. Empty `{}` is a no-op. The authenticated integer ID supplies ownership; users cannot choose another account.
 
 | Status | Meaning |
 |---|---|
@@ -144,7 +144,7 @@ Returns the same private account response. Omitted fields stay unchanged; explic
 
 - [ ] Real email-code sign-up/sign-in, invalid/expired code and resend behavior.
 - [ ] Google on agreed native platforms and Apple on iOS; cancellation/error handling.
-- [ ] Authenticated `/me` creates one account; repeat access and renewal retain its UUID.
+- [ ] Authenticated `/me` creates one account; repeat access and renewal retain its integer ID.
 - [ ] Profile PATCH persists after API/app restart; Alice and Bob retain separate profiles.
 - [ ] SDK-supported secure session storage, restoration and current-device logout; clear/cancel private cached state when changing accounts.
 - [ ] Set verified authorized-party values for each flow; check expected issuer with separate development/production instances.

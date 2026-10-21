@@ -1,6 +1,6 @@
 # Kinetix data model
 
-This diagram reflects the current [PostgreSQL schema draft](../db-schema.sql), including proposed feature tables. Only accounts, identities and profiles are currently migrated; runtime account IDs still use UUIDs until the proposed serial-ID migration is implemented.
+This diagram reflects the [PostgreSQL schema reference](../db-schema.sql). All 19 tables are initialized by the Alembic chain, including the conversion of existing UUID accounts to generated BIGINT IDs. Nutrition, training and goal APIs and business rules remain feature work. Existing account constraints are retained.
 
 `BIGSERIAL` is shown as `bigint` with a generated-value note. All local keys/references use BIGINT. `PK` = primary key, `FK` = foreign key, `UK` = unique column. Nullable references allow zero or one parent; each parent can have zero or many children unless the child key is unique. Auth identity uniqueness applies to the issuer/subject pair. Category values are documented beside their VARCHAR columns in the SQL.
 

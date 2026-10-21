@@ -4,9 +4,14 @@ Reviewed on 20 October 2026 for [DAT01](https://github.com/kinetix-app/managemen
 
 ## Scope and verdict
 
-[db-schema.sql](../db-schema.sql) is a design draft, not the deployed schema or a bootstrap script. Only `users`, `auth_accounts` and `profiles` have ORM models and an Alembic revision. The draft now includes the requested unified serial-ID design and business-level validation policy, so it intentionally differs from the current account migration. Feature issues own subsequent models and migrations. The existing `database-schema.png` predates the account correction and is not an authoritative diagram.
+[db-schema.sql](../db-schema.sql) is the product schema reference, not a bootstrap script.
+The Alembic chain now initializes all 19 tables. Revision `20261021_01` converts existing
+UUID account IDs to generated BIGINTs, preserving identity/profile relationships; revision
+`20261021_02` adds nutrition, training and goal tables. SQLAlchemy metadata covers all
+tables. These persistence changes do not deliver the proposed feature APIs or business rules.
+The review below records remaining product decisions and historical schema assessments.
 
-The draft is a useful starting point for Sprint 1, but does **not yet meet all its requirements**. Its routine/session/set separation and food/meal/day structure fit the selected journeys. Goal semantics, business validation and history behavior still need detailing before feature implementation. The exercise catalogue now has explicit, reusable fields based on Ascend, supporting manual entry and optional imports. No runtime migration or import service was implemented by this review.
+The draft is a useful starting point for Sprint 1, but does **not yet meet all its requirements**. Its routine/session/set separation and food/meal/day structure fit the selected journeys. Goal semantics, business validation and history behavior still need detailing before feature implementation. The exercise catalogue now has explicit, reusable fields based on Ascend, supporting manual entry and optional imports. The initial migrations now implement persistence; no import service or consuming feature APIs are implemented.
 
 ## Confirmed design direction
 
@@ -21,17 +26,22 @@ The draft is a useful starting point for Sprint 1, but does **not yet meet all i
 
 The account tables retain the migrated status, identity and profile fields, timezone-aware timestamps, identity-owner index and deletion relationships (`RESTRICT` for identities, `CASCADE` for profiles). Passwords, email and first/last names are not local account columns. SQLAlchemy maintains `updated_at`; there is no database trigger.
 
-**Runtime compatibility:** [revision 20261013_01](../migrations/versions/20261013_01_accounts.py), account ORM models, response schemas and services still use UUID users and UUID authentication-account IDs. Existing account foreign-key, NOT NULL, CHECK and UNIQUE constraints remain in the running database. Applying this design needs a new migration mapping existing user and authentication-account UUIDs to serial IDs while preserving identity/profile relationships, plus integer ID handling in backend contracts and tests. Do not edit the applied revision or cast UUIDs to integers. The draft retains identity uniqueness by issuer/subject, supporting the existing resolver's conflict handling for concurrent first access.
+**Runtime compatibility:** The original [revision 20261013_01](../migrations/versions/20261013_01_accounts.py)
+is unchanged. Follow-up revisions migrate its UUIDs through explicit mappings and update
+backend contracts to integer IDs. Existing account constraints remain, including issuer/subject
+uniqueness and the status CHECK. Stop API traffic during migration and refresh cached client
+account IDs. Downgrade generates new UUIDs; recovering original UUIDs requires a backup.
+See [migration instructions](../README.md#checks-and-database-changes).
 
 Nullable catalogue/routine owners do not automatically grant public access. Services must derive personal ownership from `CurrentUser` and reject cross-account references and reads.
 
-The complete [Mermaid data model](data-model.md) shows all current draft tables, fields and foreign-key relationships. Only the account tables are currently migrated.
+The complete [Mermaid data model](data-model.md) shows all current draft tables, fields and foreign-key relationships. All 19 tables are migrated; feature behavior still needs implementation.
 
 ## Sprint 1 fit and remaining work
 
 | Selected requirement | Draft support | Smallest remaining change or decision |
 |---|---|---|
-| [Account access](https://github.com/kinetix-app/app-rest/issues/8), [persistence](https://github.com/kinetix-app/app-rest/issues/9), [isolation](https://github.com/kinetix-app/app-rest/issues/10) | Migrated UUID accounts; proposed owned records consistently reference the planned serial user ID. | Migrate account IDs, then implement owned feature APIs and two-account persistence/isolation tests. Account/provider completion remains tracked separately. |
+| [Account access](https://github.com/kinetix-app/app-rest/issues/8), [persistence](https://github.com/kinetix-app/app-rest/issues/9), [isolation](https://github.com/kinetix-app/app-rest/issues/10) | Migrated BIGINT accounts and owned persistence tables; feature APIs remain outstanding. | Implement owned feature APIs and two-account persistence/isolation tests. Account/provider completion remains tracked separately. |
 | [Selected objective](https://github.com/kinetix-app/app/issues/3) | `physical_goal.goal_type` is unconstrained; every goal requires a numeric target. | Represent build muscle, lose fat, gain weight and maintain weight explicitly. Store the selected objective independently of an optional measurable target; do not equate body weight with muscle/fat progress. |
 | [Dated baseline](https://github.com/kinetix-app/app/issues/9), [baseline review](https://github.com/kinetix-app/app/issues/10) | `body_measurement.date` and `weight_kg` support a dated weight observation with a unit. | Validate at least one measurement and bounds. Agree how the baseline is associated with the selected goal; additional measures depend on DEC-01. |
 | [Chosen targets](https://github.com/kinetix-app/app/issues/14) | `physical_goal` and `nutrition_goal` hold chosen targets; body measurements record actual progress. The activity-goal table is excluded by the owner's decision. | Define the physical target metric/unit and which goal/target is current. Intermediate milestones and activity goals are excluded by the owner's decision; reconcile the linked requirement's milestone and weekly-session-target scope. No replacement weekly target is assumed. Resolve remaining DEC-01/02 rules. |
@@ -110,10 +120,10 @@ The SQL comments document enum-like vocabularies without creating PostgreSQL ENU
 
 ## Implementation order and later scope
 
-1. Keep the existing account migration as the base; add a follow-up serial-ID migration and account-contract changes before using this draft at runtime.
-2. Settle goal/baseline/target fields (DEC-01/02), then add their feature migrations.
-3. Add catalogue and routine/session/set migrations with business validation in services. Populate the catalogue manually using the common exercise fields; add an importer only when needed.
-4. Agree nutrition precision/history behavior, then add owned food/day/meal/item and target migrations. Recipes can follow their selected consuming feature.
+1. The existing account migration remains the base; follow-up serial-ID and product-table migrations are implemented. Apply the full chain before running the integer-ID backend.
+2. Settle goal/baseline/target fields (DEC-01/02), then evolve their schemas and implement feature behavior.
+3. Implement catalogue and routine/session/set APIs with business validation in services. Populate the catalogue manually using the common exercise fields; add an importer only when needed.
+4. Agree nutrition precision/history behavior, then implement owned food/day/meal/item and target APIs. Recipes can follow their selected consuming feature.
 
 Feed/post audiences, Jam membership linked to each participant's own session, league membership/scoring linked to existing workouts, and Market collections retaining item references/creator attribution are absent. They remain conceptual later work, with DEC-04–10 unresolved. Recipes and additional body measures in the draft are not evidence of Sprint 1 delivery. Integrated AI feedback, upload storage and suggestion history can wait for their consuming features and DEC-11/12.
 
@@ -123,6 +133,6 @@ The next review should check these decisions and the selected feature migrations
 
 Previous runtime checks passed: lockfile, Ruff lint/format, 106 non-integration tests and 11 integration tests. They cover the existing UUID account implementation, not the draft's serial-ID design. Earlier draft checks included now-removed tables and do not describe the current table count.
 
-Before routine/set alignment, the 18-table draft passed isolated PostgreSQL execution. Removed tables and sport references are absent; category fields use VARCHAR (VARCHAR[] for multiple exercise classifications). Manual exercise, linked session/exercise and physical-goal inserts passed. Temporary schemas and records were rolled back. No runtime migration or feature implementation is included in this change.
+Before routine/set alignment, the 18-table draft passed isolated PostgreSQL execution. Removed tables and sport references are absent; category fields use VARCHAR (VARCHAR[] for multiple exercise classifications). Manual exercise, linked session/exercise and physical-goal inserts passed. Temporary schemas and records were rolled back. That historical check preceded the initial product migrations.
 
 The current 19-table draft passed isolated PostgreSQL verification: routine and session set measurements have matching types, per-set defaults persist, and a sample copy from the latest completed workout creates fresh incomplete sets. Editing or removing a routine slot preserves historical results. Temporary schemas and records were rolled back. This validates the schema relationships and sample SQL flow, not a delivered load/start API.
