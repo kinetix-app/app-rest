@@ -1,7 +1,6 @@
 
-from sqlalchemy import insert
+from sqlalchemy import insert, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete
 
 
 from app.features.nutrition.models import food
@@ -57,3 +56,20 @@ async def delete_food(
         raise
 
     return deleted_id is not None
+
+
+async def get_food(
+    db: AsyncSession,
+    user_id: int,
+    food_id: int,
+):
+    stmt = (
+        select(food)
+        .where(
+            food.c.id == food_id,
+            food.c.user_id == user_id,
+        )
+    )
+
+    result = await db.execute(stmt)
+    return result.mappings().one_or_none()
