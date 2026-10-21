@@ -1,10 +1,9 @@
 
-from sqlalchemy import insert, delete, select, update
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 from app.features.nutrition.models import food
-from app.features.nutrition.schemas import FoodCreate, FoodResponse, FoodPatch
+from app.features.nutrition.schemas import FoodCreate, FoodPatch
 
 
 # Service functions for managing food items in the database
