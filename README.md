@@ -2,7 +2,7 @@
 
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.
 
-The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, Azure Blob Storage resources, an exercise/media seed command, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`; their APIs and business rules evolve through the GitHub backlog.
+The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, Azure Blob Storage resources, an exercise/media seed command, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`. The training API supports owned routine creation, reading and editing, plus exercise catalogue browsing. Nutrition provides personal food create/read/update/delete operations; session, meal logging and goal APIs remain backlog work.
 
 ## Start here
 
@@ -34,6 +34,7 @@ Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Py
 | `app/api/` | Health endpoints and `/api/v1` router composition |
 | `app/core/auth/` | Clerk SDK token verification and current-user dependency |
 | `app/features/accounts/` | Account models, private schemas, provisioning and profile routes |
+| `app/features/training/` | Routine/exercise APIs, training persistence and exercise/media seeding |
 | `docs/authentication.md` | Clerk configuration runbook and account/session contract |
 | `db-schema.sql`, `docs/data-model.md`, `docs/data-model-review.md` | Product schema reference, data-model diagram and Sprint 1 review; Alembic remains the runtime schema authority |
 | `app/db/` | ORM metadata, engine and request session dependency |
@@ -176,8 +177,7 @@ uv run --locked --no-build alembic check
 ```
 
 Feature revisions belong in `migrations/versions/`. The migration chain creates all 19 tables from `db-schema.sql`, with SQLAlchemy metadata in
-`app/features/accounts/`, `nutrition/`, `training/` and `goals/`. The latter three packages
-currently define persistence tables only; their APIs and business validation are future feature work.
+`app/features/accounts/`, `nutrition/`, `training/` and `goals/`. Goals currently define persistence tables only. Nutrition provides personal food operations, and training implements routine and exercise APIs; session creation, recording and meal logging remain future feature work.
 Existing account constraints remain in place, including the user-status CHECK.
 
 Revision `20261021_01` converts existing account UUIDs to generated BIGINT IDs while
@@ -288,6 +288,89 @@ Use grams, kilograms, minutes and kilometres consistently. Define numeric precis
 WebSocket feature work must authenticate participants, persist authoritative training changes and define reconnection/resynchronization. Use shared event infrastructure before scaling socket-serving processes. The management decisions and feature acceptance criteria define behavior requiring product-owner agreement.
 
 Before handoff, run relevant checks, inspect the changed files, update setup instructions and report actual results and limitations. Foundation checks establish infrastructure behavior; end-to-end feature commitments require their own application demonstrations.
+
+## Routine and exercise APIs
+
+The backend increment for [Kinetix-012](https://github.com/kinetix-app/app/issues/4)
+provides these authenticated routes. They reuse the configured Basic/Clerk adapter and
+active local account; clients never supply an owner ID.
+
+| Method and path | Behavior |
+|---|---|
+| `GET /api/v1/routines` | List only the current account's routine IDs/names. |
+| `GET /api/v1/routines/{id}` | Read an owned routine, its ordered slots and exercise details. |
+| `POST /api/v1/routines` | Save a routine and return its detail with status 201. |
+| `PATCH /api/v1/routines/{id}` | Change its name and/or replace its ordered exercise selection. |
+| `GET /api/v1/exercises` | Browse selectable gym exercises; optionally filter by `muscle_group`. |
+| `GET /api/v1/exercises/{id}` | Read a selectable gym exercise, instructions and media URLs. |
+
+List routes accept `limit` (1–100, default 50) and `offset` (nonnegative, default 0).
+Responses contain `items`, `limit` and `offset`, ordered by local ID. Continue pagination
+until a page has fewer than `limit` items. The exercise filter is a case-insensitive exact
+match against `target_muscles`, with surrounding whitespace ignored:
+`GET /api/v1/exercises?muscle_group=PECTORALIS`. Omitted/blank `muscle_group` returns all
+selectable exercises, including ones without target-muscle metadata. Secondary muscles
+and body parts are separate metadata and are not matched by this filter.
+
+Selectable exercises are the explicitly seeded global V2 gym catalogue
+(`source=ascend_edb_v2`, external ID and import timestamp present) and the account's own
+gym exercises. Another account's exercises and unowned manual records are excluded;
+nullable ownership alone does not publish a record. The same policy applies to list,
+detail and routine references. Seed at least eight catalogue exercises for the Sprint 1
+demonstration using the command below; API startup does not seed data.
+
+Create a routine with `POST /api/v1/routines`:
+
+```json
+{
+  "name": "Upper body",
+  "exercises": [{"exercise_id": 1}, {"exercise_id": 2}, {"exercise_id": 3}]
+}
+```
+
+Use actual local IDs returned by the catalogue endpoint. Names are trimmed and must
+contain 1–150 characters. A selection contains 1–500 exercise entries; one exercise is
+valid and repetitions of the same exercise are allowed as distinct slots. Array order
+becomes consecutive positions starting at 1. Unknown request fields are rejected.
+
+Routine detail returns `id`, `name` and `exercises`. Each slot contains its own `id`,
+`exercise_order`, nested `exercise` details, `notes`, `default_sets`, resolved `sets` and
+`sets_source` (`routine` or `latest_session`). Exercise details omit ownership and internal
+import identifiers. Media URLs are returned as stored; production delivery authorization
+still requires the deployment setup described below.
+
+PATCH omission leaves a field unchanged; explicit `null`, blank names, empty selections
+and empty patches are rejected. When replacing the selection, send an existing slot's
+`id` to retain it during reordering, alongside its `exercise_id`:
+
+```json
+{
+  "name": "Upper body revised",
+  "exercises": [{"id": 12, "exercise_id": 2}, {"exercise_id": 4}]
+}
+```
+
+Slot IDs must belong to this routine and appear at most once. An omitted/null slot ID
+creates a new slot; existing slots omitted from the replacement are removed. Retaining
+a slot with the same exercise preserves its notes/default sets. Changing its exercise
+clears incompatible defaults. Notes/default-set editing and session recording are outside
+this API increment.
+
+Loading a routine resolves set measurements from the current account's latest completed
+session for that routine (`ended_at DESC, id DESC`). Matching uses both stable slot ID and
+exercise ID; unmatched slots fall back to saved defaults. Active sessions, other accounts
+and results from older sessions are excluded. Saved defaults remain separately available
+in `default_sets`; decimal measurements serialize as strings. Reads never update defaults
+or recorded results. Template updates serialize on the routine row; detail reads hold a
+shared row lock while loading the template. Removing a slot clears only the historical
+provenance link, preserving recorded exercises and sets.
+
+Missing/inaccessible routines and exercises return 404. Invalid fields or unavailable
+exercise/slot selections return 422, without disclosing private records. Invalid credentials
+return 401, inactive accounts 403, and unavailable authentication 503. Writes commit
+atomically or roll back. Session start (Kinetix-013), routine deletion, exercise authoring
+and frontend screens are separate work; these routes alone do not complete the integrated
+session-start acceptance check.
 
 ## Exercise catalogue and media seeding
 
