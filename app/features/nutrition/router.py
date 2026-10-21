@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.auth.dependencies import CurrentUser
@@ -33,7 +32,6 @@ async def remove_food(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Food not found",
         )
-
 
 
 # Endpoint to retrieve a food item by its ID for the authenticated user
