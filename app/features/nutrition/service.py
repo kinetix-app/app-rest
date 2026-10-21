@@ -20,9 +20,12 @@ async def create_food(
         .returning(food)
     )
 
-    result = await db.execute(stmt)
-    created_food = result.mappings().one()
-
-    await db.commit()
+    try:
+        result = await db.execute(stmt)
+        created_food = result.mappings().one()
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
     return created_food
