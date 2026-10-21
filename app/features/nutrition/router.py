@@ -4,8 +4,8 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
-from app.features.nutrition.schemas import FoodCreate, FoodResponse
-from app.features.nutrition.service import create_food, delete_food, get_food
+from app.features.nutrition.schemas import FoodCreate, FoodResponse, FoodPatch
+from app.features.nutrition.service import create_food, delete_food, get_food, update_food
 
 router = APIRouter(prefix="/foods", tags=["nutrition"])
 
@@ -54,3 +54,27 @@ async def read_food(
 
     return result
 
+
+# Endpoint to update a food item by its ID for the authenticated user
+@router.patch("/{food_id}", response_model=FoodResponse)
+async def patch_food(
+    food_id: int,
+    data: FoodPatch,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> FoodResponse:
+    try:
+        updated = await update_food(session, user.id, food_id, data)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Food not found",
+        )
+
+    return updated

@@ -1,12 +1,13 @@
 
-from sqlalchemy import insert, delete, select
+from sqlalchemy import insert, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.features.nutrition.models import food
-from app.features.nutrition.schemas import FoodCreate
+from app.features.nutrition.schemas import FoodCreate, FoodResponse, FoodPatch
 
 
+# Service functions for managing food items in the database
 async def create_food(
     db: AsyncSession,
     user_id: int,
@@ -32,7 +33,7 @@ async def create_food(
     return created_food
 
 
-
+# Service function to delete a food item by its ID for a specific user
 async def delete_food(
     db: AsyncSession,
     user_id: int,
@@ -58,6 +59,7 @@ async def delete_food(
     return deleted_id is not None
 
 
+# Service function to retrieve a food item by its ID for a specific user
 async def get_food(
     db: AsyncSession,
     user_id: int,
@@ -73,3 +75,41 @@ async def get_food(
 
     result = await db.execute(stmt)
     return result.mappings().one_or_none()
+
+
+# Service function to update a food item by its ID for a specific user
+async def update_food(
+    db: AsyncSession,
+    user_id: int,
+    food_id: int,
+    data: FoodPatch,
+):
+    changes = data.model_dump(exclude_unset=True)
+
+    # No permitir valores nulos en campos obligatorios
+    required = {"name", "calories", "protein", "carbohydrates", "fats"}
+    if any(changes.get(field, 0) is None for field in required):
+        raise ValueError("Required fields cannot be null")
+
+    if not changes:
+        return await get_food(db, user_id, food_id)
+
+    stmt = (
+        update(food)
+        .where(
+            food.c.id == food_id,
+            food.c.user_id == user_id,
+        )
+        .values(**changes)
+        .returning(food)
+    )
+
+    try:
+        result = await db.execute(stmt)
+        updated = result.mappings().one_or_none()
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    return updated
