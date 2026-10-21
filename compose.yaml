@@ -18,6 +18,24 @@ services:
       start_period: 10s
       retries: 10
 
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0@sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5
+    command: azurite-blob --blobHost 0.0.0.0 --location /data --silent --disableTelemetry --disableProductStyleUrl
+    environment:
+      # Public emulator credentials only; never use this key for an Azure account.
+      AZURITE_ACCOUNTS: "kinetixlocal:a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ=="
+    ports:
+      - "${AZURITE_BIND_ADDRESS:-127.0.0.1}:${AZURITE_PORT:-10000}:10000"
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      # Exercise Blob REST, expecting an authentication error for an unsigned request.
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:10000/kinetixlocal?comp=list', r => process.exit(r.statusCode === 403 && r.headers['x-ms-error-code'] === 'AuthorizationFailure' ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 10
+
   api:
     build:
       context: .
@@ -32,10 +50,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-fitness}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-fitness}
+      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-kinetixlocal}
+      AZURE_STORAGE_ACCOUNT_URL: ${AZURE_STORAGE_COMPOSE_ACCOUNT_URL:-http://azurite:10000/kinetixlocal}
+      AZURE_STORAGE_ACCOUNT_KEY: ${AZURE_STORAGE_ACCOUNT_KEY:-a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ==}
+      AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-exercises}
+      AZURE_STORAGE_MEDIA_BASE_URL: ${AZURE_STORAGE_MEDIA_BASE_URL:-http://127.0.0.1:10000/kinetixlocal}
+      AZURE_STORAGE_LOCAL_PUBLIC_READ: ${AZURE_STORAGE_LOCAL_PUBLIC_READ:-true}
     ports:
       - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      azurite:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -79,6 +105,7 @@ services:
         hard: 65536
 
 volumes:
+  azurite-data:
   postgres-data:
   postgres-test-data:
   sonarqube-data:

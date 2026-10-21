@@ -111,6 +111,7 @@ erDiagram
         varchar source "VARCHAR(30); required"
         text external_id "nullable"
         timestamptz imported_at "nullable"
+        jsonb image_urls "nullable; resolution to seeded URL"
     }
 
     routine {

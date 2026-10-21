@@ -57,7 +57,7 @@ Nutrition calculation is `reference_value * quantity_grams / 100`; 150 g contrib
 
 ## Exercise catalogue fields
 
-Reviewed official [V1 exercise detail](https://docs.ascendapi.com/api-reference/exercisedb-v1/exercises/getexercisebyid) and [V2 exercise detail](https://docs.ascendapi.com/api-reference/exercisedb-v2/exercises/getexercisebyid). Ascend provides the field vocabulary for our own exercise catalogue. Exercises can be filled manually, and do not require an Ascend account, download or external ID. No importer is implemented here.
+Reviewed official [V1 exercise detail](https://docs.ascendapi.com/api-reference/exercisedb-v1/exercises/getexercisebyid) and [V2 exercise detail](https://docs.ascendapi.com/api-reference/exercisedb-v2/exercises/getexercisebyid). Ascend provides the field vocabulary for our own exercise catalogue. Exercises can be filled manually, and do not require an Ascend account, download or external ID. The explicit seed importer described in the follow-up below loads the supplied local export without provider downloads.
 
 The `exercise` table exposes the documented V1/V2 exercise fields directly, using snake_case. Array fields retain multiple values and instruction order. Only resolution-to-URL maps use JSONB. There is no whole-exercise JSON payload.
 
@@ -79,7 +79,7 @@ Local metadata stays small: nullable creator `user_id`, `activity_type VARCHAR(3
 
 `related_exercise_ids` preserves the provider's descriptive relationship field; it is not a foreign-key list of local exercise IDs. Manual entries can leave it empty. A future importer can resolve related provider IDs within the same source when needed, without making import completeness a condition of creating an exercise.
 
-Manual entry is the immediate catalogue workflow. If importing later, identify rows by `(source, external_id)` and preserve their local IDs when updating metadata. Business logic handles duplicate detection. The [provider policy](https://docs.ascendapi.com/guides/caching) still applies to downloaded information, and imported media links require refresh; manually supplied exercise information has no provider dependency.
+Manual entry remains supported alongside the explicit local catalogue seed command. If importing later, identify rows by `(source, external_id)` and preserve their local IDs when updating metadata. Business logic handles duplicate detection. The [provider policy](https://docs.ascendapi.com/guides/caching) still applies to downloaded information, and imported media links require refresh; manually supplied exercise information has no provider dependency.
 
 Exercise classifications do not determine workout units. The selected gym flow still needs service/UI configuration for kilograms and repetitions. Actual completed sets remain separate from editable catalogue metadata.
 
@@ -136,3 +136,7 @@ Previous runtime checks passed: lockfile, Ruff lint/format, 106 non-integration 
 Before routine/set alignment, the 18-table draft passed isolated PostgreSQL execution. Removed tables and sport references are absent; category fields use VARCHAR (VARCHAR[] for multiple exercise classifications). Manual exercise, linked session/exercise and physical-goal inserts passed. Temporary schemas and records were rolled back. That historical check preceded the initial product migrations.
 
 The current 19-table draft passed isolated PostgreSQL verification: routine and session set measurements have matching types, per-set defaults persist, and a sample copy from the latest completed workout creates fresh incomplete sets. Editing or removing a routine slot preserves historical results. Temporary schemas and records were rolled back. This validates the schema relationships and sample SQL flow, not a delivered load/start API.
+
+## Exercise media seeding follow-up
+
+Issue [#16](https://github.com/kinetix-app/app-rest/issues/16) adds `exercise.image_urls JSONB` for all imported JPEG resolution variants alongside the default `image_url` and `video_url`. A partial unique index on `(source, external_id)` applies only to non-manual global catalogue rows with an external ID; user-owned and manual records remain independent. Migration `20261021_03` implements this change. The explicit local seed command replaces the immediate manual-only catalogue workflow for the supplied export; no provider download runs at startup. See the README for input format, storage configuration and retry semantics.

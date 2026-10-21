@@ -47,6 +47,15 @@ def schema_signature(connection, schema):
             inspector.get_pk_constraint(table, schema=schema)["constrained_columns"],
             foreign_keys,
             sorted(
+                (
+                    tuple(index["column_names"]),
+                    index["unique"],
+                    index["dialect_options"].get("postgresql_where"),
+                )
+                for index in inspector.get_indexes(table, schema=schema)
+                if not index.get("duplicates_constraint")
+            ),
+            sorted(
                 tuple(unique["column_names"])
                 for unique in inspector.get_unique_constraints(table, schema=schema)
             ),
@@ -67,7 +76,9 @@ async def test_clean_migration_matches_sql_draft_and_downgrades(integration_url)
                     await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
                 await connection.execute(text(f'SET LOCAL search_path TO "{draft}"'))
                 sql = (ROOT / "db-schema.sql").read_text()
-                for ddl in re.findall(r"CREATE (?:TABLE|INDEX) .*?;(?=\n|$)", sql, re.S):
+                for ddl in re.findall(
+                    r"CREATE (?:TABLE|(?:UNIQUE )?INDEX) .*?;(?=\n|$)", sql, re.S
+                ):
                     # Table bodies contain semicolons only inside line comments.
                     await connection.execute(text(ddl))
                 await connection.execute(text(f'SET LOCAL search_path TO "{migrated}"'))

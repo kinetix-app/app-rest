@@ -65,6 +65,18 @@ jobs:
           --health-timeout 3s
           --health-start-period 10s
           --health-retries 10
+      azurite:
+        image: mcr.microsoft.com/azure-storage/azurite:3.37.0@sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5
+        env:
+          AZURITE_ACCOUNTS: "kinetixlocal:a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ=="
+        ports:
+          - 10000:10000
+        options: >-
+          --health-cmd "node -e \"require('http').get('http://127.0.0.1:10000/kinetixlocal?comp=list',r=>process.exit(r.statusCode===403?0:1)).on('error',()=>process.exit(1))\""
+          --health-interval 5s
+          --health-timeout 3s
+          --health-start-period 5s
+          --health-retries 10
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,9 +99,12 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --group dev --no-build
 
-      - name: Run unit and PostgreSQL integration tests
+      - name: Run unit, PostgreSQL and Azurite integration tests
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:5432/fitness_test
+          TEST_AZURE_STORAGE_ACCOUNT_NAME: kinetixlocal
+          TEST_AZURE_STORAGE_ACCOUNT_URL: http://127.0.0.1:10000/kinetixlocal
+          TEST_AZURE_STORAGE_ACCOUNT_KEY: a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ==
         run: uv run --locked --no-build pytest --cov=. --cov-report=xml
 
       - name: Upload coverage report
