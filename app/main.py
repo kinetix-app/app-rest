@@ -15,6 +15,7 @@ from app.api.router import api_router
 from app.core.auth.clerk import ClerkVerifier
 from app.core.config import Settings
 from app.core.logging import configure_logging
+from app.core.storage.azure import BlobStorage
 from app.db.session import create_database_engine
 
 logger = logging.getLogger("kinetix.requests")
@@ -31,10 +32,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.engine = engine
         application.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
         application.state.clerk_verifier = ClerkVerifier(configuration)
+        application.state.blob_storage = None
         try:
+            if configuration.azure_storage_account_url:
+                application.state.blob_storage = BlobStorage(configuration)
             yield
         finally:
-            await engine.dispose()
+            try:
+                if application.state.blob_storage is not None:
+                    await application.state.blob_storage.close()
+            finally:
+                await engine.dispose()
 
     application = FastAPI(title="Kinetix API", version="0.1.0", lifespan=lifespan)
     application.add_middleware(

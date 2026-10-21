@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     auth_mode: Literal["basic", "clerk"] | None = None
     basic_auth_users: dict[str, SecretStr] = Field(default_factory=dict)
 
+    azure_storage_account_name: str | None = Field(default=None, pattern=r"^[a-z0-9]{3,24}$")
+    azure_storage_account_url: str | None = None
+    azure_storage_account_key: SecretStr | None = None
+    azure_storage_container: str = Field(
+        default="exercises", pattern=r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
+    )
+    azure_storage_media_base_url: str | None = None
+    azure_storage_local_public_read: bool = False
+    azure_storage_timeout_seconds: float = Field(default=30, gt=0, le=120)
+
     clerk_issuer: str | None = None
     clerk_secret_key: SecretStr | None = None
     clerk_authorized_parties: list[str] = Field(default_factory=list)
@@ -39,6 +49,10 @@ class Settings(BaseSettings):
         "clerk_issuer",
         "clerk_audience",
         "clerk_secret_key",
+        "azure_storage_account_name",
+        "azure_storage_account_url",
+        "azure_storage_account_key",
+        "azure_storage_media_base_url",
         mode="before",
     )
     @classmethod
@@ -97,6 +111,41 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Set POSTGRES_PASSWORD or DATABASE_URL before starting the application"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_storage_configuration(self) -> Self:
+        values = (
+            self.azure_storage_account_name,
+            self.azure_storage_account_url,
+            self.azure_storage_account_key,
+            self.azure_storage_media_base_url,
+        )
+        if any(values) and not all(values):
+            raise ValueError(
+                "Azure storage requires account name, account URL, key and media base URL"
+            )
+        if "--" in self.azure_storage_container:
+            raise ValueError("Azure container names cannot contain consecutive hyphens")
+        for value in (self.azure_storage_account_url, self.azure_storage_media_base_url):
+            if value is None:
+                continue
+            url = urlsplit(value)
+            if (
+                url.scheme not in ("http", "https")
+                or not url.hostname
+                or url.username
+                or url.password
+                or url.query
+                or url.fragment
+            ):
+                raise ValueError(
+                    "Azure storage URLs must be HTTP(S) without credentials or queries"
+                )
+            if self.app_env == "production" and url.scheme != "https":
+                raise ValueError("Production Azure storage URLs require HTTPS")
+        if self.azure_storage_local_public_read and self.app_env == "production":
+            raise ValueError("Local public blob access is forbidden in production")
         return self
 
     def database_connection_url(self) -> URL:

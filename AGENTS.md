@@ -4,7 +4,7 @@ Read [README.md](README.md), the user's task, its issue/acceptance criteria when
 
 ## Context and workflow
 
-The repository contains the initialized FastAPI foundation, configuration, PostgreSQL resources, Alembic environment, health routes, Docker packaging and tests. Clerk bearer-session authentication and the local accounts/profile feature are implemented under ACC01; provider/native setup remains outstanding. Account IDs are generated BIGINTs; nutrition, training and goal persistence tables are initialized, while their feature APIs remain outstanding. See [authentication runbook](docs/authentication.md). Product features develop through the GitHub backlog. Verify actual implementation before reporting completion.
+The repository contains the initialized FastAPI foundation, configuration, PostgreSQL resources, Alembic environment, health routes, Docker packaging and tests. Clerk bearer-session authentication and the local accounts/profile feature are implemented under ACC01; provider/native setup remains outstanding. Account IDs are generated BIGINTs; nutrition, training and goal persistence tables are initialized, while their feature APIs remain outstanding. The exercise catalogue/media seed command uses an external local export and Azure Blob Storage/Azurite; see the README. See [authentication runbook](docs/authentication.md). Product features develop through the GitHub backlog. Verify actual implementation before reporting completion.
 
 GitHub issues are the task/status source and the GitHub Project is the planning view. Publication configuration is pending. Use verified issue references when available and keep reported work factual. The management repository owns product scope, sprint commitments, diagrams and decisions; this repository owns executable services/migrations and runtime onboarding. Documentation is English and links remain within the repository or use verified external URLs.
 
@@ -26,7 +26,7 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 ## Development and packaging
 
 - Use uv for dependency management and commands. Commit manifest and lockfile changes together. The README is the setup/command reference. Use `make setup`, `make dev`, `make migrate` and `make check` for local development; the Makefile wraps locked uv commands. Local uv must be at least 0.12.13; Docker and CI retain their exact pin.
-- Compose runs the packaged API and PostgreSQL by default; start only `postgres` when developing with host uv/Uvicorn. Use host published ports versus Compose service names correctly.
+- Compose runs the packaged API, PostgreSQL and Azurite by default; start `postgres` and `azurite` when developing with host uv/Uvicorn. Use host published ports versus Compose service names correctly.
 - An optional `sonar` profile runs a local SonarQube Community server for pre-push analysis through `scripts/sonar-scan.sh`; it uses the embedded database and named volumes and is not part of CI.
 - Add dependency services alongside consuming features. Use dependency-native health checks and healthy-startup conditions, with bounded API liveness/readiness behavior and failure/recovery verification.
 - Maintain cached multi-stage builds, compatible Python/OS/runtime paths, a slim non-root runtime and an appropriately scoped Docker build context. Verify runtime contents and cache reuse after packaging changes.
@@ -46,7 +46,7 @@ uv run --locked --no-build pytest -m 'not integration'
 
 For the full suite, start the dedicated test service and pass its explicit URL as documented in the README. Integration tests must target a database ending in `_test`, and use only test-owned records/tables. Add meaningful permission, calculation, persistence and failure cases with their consuming features.
 
-The pull-request workflow in `.github/workflows/ci.yml` runs Ruff lint/format checks, the complete pytest suite with an isolated, health-checked PostgreSQL service, and an advisory SonarCloud scan consuming the uploaded coverage report. Keep its uv/Python pins, locked synchronization, database image and SonarCloud action pin aligned with local commands and Compose. Preserve immutable action pins and read-only permissions when editing CI.
+The pull-request workflow in `.github/workflows/ci.yml` runs Ruff lint/format checks, the complete pytest suite with isolated, health-checked PostgreSQL and Azurite services, and an advisory SonarCloud scan consuming the uploaded coverage report. Keep its uv/Python pins, locked synchronization, database/Azurite images and SonarCloud action pin aligned with local commands and Compose. Preserve immutable action pins and read-only permissions when editing CI.
 
 For configuration/packaging changes, verify host and container modes, health failure/recovery, explicit migrations, data-volume persistence, graceful shutdown and cache reuse as applicable. Report executed checks, results and unverified behavior accurately; infrastructure probes establish infrastructure evidence, while feature delivery requires its own demonstration.
 

@@ -59,6 +59,15 @@ exercise = sa.Table(
     ),
     sa.Column("external_id", sa.Text(), nullable=True),
     sa.Column("imported_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("image_urls", postgresql.JSONB(), nullable=True),
+)
+
+sa.Index(
+    "ix_exercise_catalogue_source_external_id",
+    exercise.c.source,
+    exercise.c.external_id,
+    unique=True,
+    postgresql_where=sa.text("user_id IS NULL AND external_id IS NOT NULL AND source <> 'manual'"),
 )
 
 routine = sa.Table(

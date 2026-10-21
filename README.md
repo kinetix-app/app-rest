@@ -2,7 +2,7 @@
 
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.
 
-The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`; their APIs and business rules evolve through the GitHub backlog.
+The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, Azure Blob Storage resources, an exercise/media seed command, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`; their APIs and business rules evolve through the GitHub backlog.
 
 ## Start here
 
@@ -81,17 +81,19 @@ A **500** after correct credentials can indicate unapplied migrations; check API
 
 ## Development commands
 
-The [Makefile](Makefile) wraps the existing uv and Compose commands. It uses the host API with automatic reload and starts only PostgreSQL in Docker. Run commands from this checkout; `make` is available on macOS/Linux and through WSL or GNU Make on Windows.
+The [Makefile](Makefile) wraps the existing uv and Compose commands. It uses the host API with automatic reload and starts PostgreSQL and Azurite in Docker. Run commands from this checkout; `make` is available on macOS/Linux and through WSL or GNU Make on Windows.
 
 | Command | Purpose |
 |---|---|
 | `make setup` | Install locked development dependencies, start PostgreSQL and apply migrations |
-| `make dev` | Ensure PostgreSQL is healthy and start Uvicorn with reload |
+| `make dev` | Ensure PostgreSQL and Azurite are healthy and start Uvicorn with reload |
 | `make migrate` | Apply migrations after pulling schema changes |
 | `make check` | Check the lockfile, Ruff lint/format and non-integration tests |
 | `make db` | Start PostgreSQL alone |
+| `make storage` | Start the local Azurite blob service |
+| `make seed-exercises DATASET=../exercices` | Validate and import the external exercise/media export |
 
-After first setup, use `make dev` for daily work. Re-run `make setup` when dependencies change, or `make migrate` when migrations change. Stop Uvicorn with Ctrl-C; PostgreSQL keeps its data in a named volume. Stop PostgreSQL with `docker compose stop postgres`.
+After first setup, use `make dev` for daily work. Re-run `make setup` when dependencies change, or `make migrate` when migrations change. Stop Uvicorn with Ctrl-C; PostgreSQL keeps its data in a named volume. Stop local dependencies with `docker compose stop postgres azurite`.
 
 Without Make, the equivalent API command is:
 
@@ -99,7 +101,7 @@ Without Make, the equivalent API command is:
 uv run --locked --no-build uvicorn app.main:create_app --factory --reload --no-access-log
 ```
 
-The factory loads and validates one settings object. Database resources are created and disposed during the application lifespan. `/health/live` reports whether the API responds; `/health/ready` checks PostgreSQL with a configured query timeout. Request logs include IDs, route templates, status and duration, excluding query strings and bodies.
+The factory loads and validates one settings object. Database resources are created and disposed during the application lifespan. `/health/live` reports whether the API responds; `/health/ready` checks PostgreSQL and, when configured, the authenticated blob storage account, each within `DATABASE_TIMEOUT_SECONDS`. Liveness stays independent of both services. Request logs include IDs, route templates, status and duration, excluding query strings and bodies.
 
 ### Configuration
 
@@ -133,15 +135,15 @@ The component settings construct database URLs safely when passwords contain res
 
 ## Run the packaged API
 
-The default Compose services run the API image alongside PostgreSQL:
+The default Compose services run the API image alongside PostgreSQL and Azurite:
 
 ```sh
-docker compose up -d --wait postgres
+docker compose up -d --wait postgres azurite
 docker compose run --rm --build api alembic upgrade head
 docker compose up -d --build --wait
 ```
 
-Run migrations before starting application traffic. Stop a host API using the same port before switching modes. The container uses `postgres:5432`, waits for a healthy database, runs as UID 10001 with a read-only filesystem and uses the bundled application. Its readiness probe uses Python's standard library.
+Run migrations before starting application traffic. Stop a host API using the same port before switching modes. The container uses `postgres:5432`, waits for healthy PostgreSQL and Azurite services, runs as UID 10001 with a read-only filesystem and uses the bundled application. Its readiness probe uses Python's standard library.
 
 The Dockerfile installs locked runtime dependencies once in a cached builder layer, then copies the application and migrations into the slim runtime. Source changes do not rebuild dependencies. Verify cache reuse when changing packaging or dependencies; update image digests together with documented compatibility checks.
 
@@ -244,10 +246,10 @@ The extractor validates every page and fails on duplicates, changing counts, inc
 The [CI workflow](.github/workflows/ci.yml) runs on every pull request, on pushes to a branch that has an open pull request (the pull-request `synchronize` event) and on pushes to `master`, with three independent checks:
 
 - **Lint and format:** Ruff linting and formatting verification.
-- **Tests:** the complete pytest suite with coverage, including integration tests against an isolated, health-checked PostgreSQL service matching the Compose image.
+- **Tests:** the complete pytest suite with coverage, including integration tests against an isolated, health-checked PostgreSQL and Azurite services matching the Compose images.
 - **SonarCloud:** uploads the analysis and coverage report to SonarCloud. This check is advisory: it reports the quality gate without failing the build.
 
-All jobs install uv 0.12.13, use Python from `.python-version`, cache dependencies and synchronize with `uv sync --locked --group dev --no-build`. `--no-build` stops dependency build scripts from running during synchronization; the project itself is still built. An outdated lockfile fails synchronization. The test job supplies `TEST_DATABASE_URL` for its temporary `fitness_test` database and uploads `coverage.xml`; the SonarCloud job checks out the full history (`fetch-depth: 0`) and downloads that report. Pull-request runs are analyzed in the pull-request context and the source branch is passed explicitly as `sonar.pullrequest.branch`, so each analysis identifies the branch it came from; pushes to `master` update the project's main branch. Actions are pinned to release commits, workflow permissions are read-only and new commits cancel superseded runs for the same PR.
+All jobs install uv 0.12.13, use Python from `.python-version`, cache dependencies and synchronize with `uv sync --locked --group dev --no-build`. `--no-build` stops dependency build scripts from running during synchronization; the project itself is still built. An outdated lockfile fails synchronization. The test job supplies `TEST_DATABASE_URL` for its temporary `fitness_test` database and `TEST_AZURE_STORAGE_ACCOUNT_NAME`/`TEST_AZURE_STORAGE_ACCOUNT_URL`/`TEST_AZURE_STORAGE_ACCOUNT_KEY` for test-owned Azurite containers and uploads `coverage.xml`; the SonarCloud job checks out the full history (`fetch-depth: 0`) and downloads that report. Pull-request runs are analyzed in the pull-request context and the source branch is passed explicitly as `sonar.pullrequest.branch`, so each analysis identifies the branch it came from; pushes to `master` update the project's main branch. Actions are pinned to release commits, workflow permissions are read-only and new commits cancel superseded runs for the same PR.
 
 ### SonarCloud setup
 
@@ -271,7 +273,7 @@ docker compose logs --tail=100 api
 docker compose down
 ```
 
-PostgreSQL is checked with `pg_isready`; API readiness queries it using application credentials. Health failures should lead to checking the connection hostname/port, credentials and database logs. Health checks handle startup ordering; readiness reports database failures and recovers after the database returns. A paused PostgreSQL process can delay pooled-connection cleanup beyond `DATABASE_TIMEOUT_SECONDS` (observed past 15 seconds); the container health check has its own external timeout. Stopping/restarting PostgreSQL was verified separately from this paused-process limitation.
+PostgreSQL is checked with `pg_isready`; Azurite is checked through its Blob REST endpoint. API readiness authenticates against PostgreSQL and the configured blob account. Health failures should lead to checking the connection hostname/port, credentials and database logs. Health checks handle startup ordering; readiness reports database failures and recovers after the database returns. A paused PostgreSQL process can delay pooled-connection cleanup beyond `DATABASE_TIMEOUT_SECONDS` (observed past 15 seconds); the container health check has its own external timeout. Stopping/restarting PostgreSQL was verified separately from this paused-process limitation.
 
 Normal shutdown preserves the named data volumes. Existing volumes retain their initialized credentials; changing `.env` does not change an existing database role. Redact sensitive output before sharing diagnostics. Resetting a volume is a deliberate data-deletion operation.
 
@@ -286,3 +288,72 @@ Use grams, kilograms, minutes and kilometres consistently. Define numeric precis
 WebSocket feature work must authenticate participants, persist authoritative training changes and define reconnection/resynchronization. Use shared event infrastructure before scaling socket-serving processes. The management decisions and feature acceptance criteria define behavior requiring product-owner agreement.
 
 Before handoff, run relevant checks, inspect the changed files, update setup instructions and report actual results and limitations. Foundation checks establish infrastructure behavior; end-to-end feature commitments require their own application demonstrations.
+
+## Exercise catalogue and media seeding
+
+[Issue #16](https://github.com/kinetix-app/app-rest/issues/16) adds an explicit seed operation; startup and migrations never download or import exercise data. The external [exercices repository](https://github.com/kinetix-app/exercices) contains an ExerciseDB V2 export: `index.json` maps 200 provider IDs to directories, each containing `data.json`, `video.mp4` and four JPEG variants under `images/` (`360p.jpg`, `480p.jpg`, `720p.jpg`, `1080p.jpg`). The supplied snapshot totals 200 exercises and 1,000 media files. Keep this repository and its media outside the backend Git/build context, and retain its source attribution and usage terms. The seed command reads only local assets, without provider network requests.
+
+### Storage configuration
+
+Copy the storage block from `.env.example` into an existing local `.env`. Azurite uses a fixed, public **emulator-only** account/key declared in Compose and the example environment. It runs blob service only, pins Azurite 3.37.0 by digest, disables access logging/telemetry and persists data in `azurite-data`. The SDK explicitly selects storage API `2026-06-06` supported by this emulator; dependency upgrades must preserve that compatibility.
+
+| Setting | Purpose |
+|---|---|
+| `AZURE_STORAGE_ACCOUNT_NAME` | Azure account name; local emulator account `kinetixlocal` |
+| `AZURE_STORAGE_ACCOUNT_URL` | Backend account root; host example `http://127.0.0.1:10000/kinetixlocal` |
+| `AZURE_STORAGE_ACCOUNT_KEY` | Backend-only shared account key; never expose a real Azure key to clients |
+| `AZURE_STORAGE_CONTAINER` | Blob container name, default `exercises` |
+| `AZURE_STORAGE_MEDIA_BASE_URL` | Client-reachable account/CDN root, without container, credentials, query or SAS; used to build stored media URLs |
+| `AZURE_STORAGE_LOCAL_PUBLIC_READ` | Default false; `.env.example` enables blob-only anonymous reads for local demonstration; forbidden in production |
+| `AZURE_STORAGE_TIMEOUT_SECONDS` | Per-upload/container operation timeout, default 30 seconds; readiness uses `DATABASE_TIMEOUT_SECONDS` |
+| `AZURE_STORAGE_COMPOSE_ACCOUNT_URL` | Packaged API override; defaults to `http://azurite:10000/kinetixlocal` |
+| `AZURITE_PORT`, `AZURITE_BIND_ADDRESS` | Host publishing, defaults `10000` / `127.0.0.1` |
+
+All four account name/URL/key/media URL settings must be supplied together. Without them, the host API runs without a storage client; a consuming route using `AzureStorage` returns 503. The packaged local API supplies emulator defaults through Compose. The client is created/disposed in application lifespan and is available through `app/core/storage/azure.py`'s dependency; it does not create containers during startup. Readiness checks the account, allowing a fresh installation before the first seed.
+
+For a real Azure account, configure its account name, HTTPS account root, a backend-only account key and the HTTPS media delivery root. When using Compose, also set `AZURE_STORAGE_COMPOSE_ACCOUNT_URL` to that account root. Set `AZURE_STORAGE_LOCAL_PUBLIC_READ=false`. The seed command creates private containers by default and never changes an existing container's visibility. Production media authorization/delivery remains a product/deployment decision; plain private blob URLs require an authorized delivery layer, and the seed command does not create permanent SAS URLs. Local public-read mode creates a new container with blob read access; an existing private container must be configured explicitly before seeding in that mode.
+
+For physical-device demonstrations, set `AZURITE_BIND_ADDRESS=0.0.0.0` on a trusted LAN and use the host's LAN address in `AZURE_STORAGE_MEDIA_BASE_URL`. Keep the backend account URL on loopback for a host API or on the Compose service for a container. Changing the media delivery root requires rerunning the seed to refresh database URLs. Changing `AZURITE_PORT` also requires updating the host account and media URLs.
+
+### Validate, migrate and import
+
+From the backend checkout, with the export in the sibling `exercices` directory:
+
+```sh
+uv run --locked --no-build python -m app.features.training.seed --dataset ../exercices --validate-only
+make seed-exercises DATASET=../exercices
+```
+
+The Make command starts PostgreSQL/Azurite and applies migrations before importing. Alternatively, start the dependencies, apply `make migrate`, then invoke `uv run --locked --no-build python -m app.features.training.seed --dataset ../exercices`. Validation alone requires no database or storage configuration.
+
+For the packaged API, mount the export read-only instead of copying media into the image:
+
+```sh
+docker compose up -d --wait postgres azurite
+docker compose run --rm --build api alembic upgrade head
+docker compose run --rm -v "$(cd ../exercices && pwd):/seed:ro" api python -m app.features.training.seed --dataset /seed
+docker compose up -d --build --wait api
+```
+
+Successful import prints `{"status": "seeded", "exercises": 200, "media": 1000}` for the supplied snapshot. Invalid/incomplete input and storage/database failures exit nonzero, print a redacted diagnostic and never print success. The whole export is validated before remote writes, including index coverage, provider IDs, every expected asset, default-image mapping and unmapped files. Unknown metadata is rejected rather than silently lost. Correct the input or unavailable service and rerun.
+
+Images/videos use immutable names containing their SHA-256 under `ascend_edb_v2/<external-id>/`. Reruns check existing blob identity/content type and reuse matching blobs. All uploads finish before a single short catalogue transaction, so failed uploads never commit new references and failed database writes roll back the entire import. A failed run can leave unreferenced blobs; safe retries reuse them. Changing media can leave older unreferenced blobs; automated deletion is deliberately outside the seed command.
+
+The import retains provider classifications, instructions, tips, variations, related IDs and other supplied descriptive fields. It maps this gym catalogue to `activity_type=gym`, keeping provider `exerciseType` separate in `exercise_types`. `image_url` identifies the provider's default variant, `image_urls` preserves every resolution, and `video_url` points to the uploaded MP4. Source/external ID and timezone-aware `imported_at` preserve provenance. A partial unique index and upsert retain local IDs across reruns/concurrent imports. Manual and user-owned records remain independent, even when they carry the same external ID. The migration fails if pre-existing global imports have duplicate source/external IDs; resolve those records explicitly before retrying it.
+
+### Verify the import
+
+Rerun the command and confirm stable IDs/counts, then restart PostgreSQL/Azurite without removing volumes and inspect the same records/media. Open a stored `image_url` and `video_url` in the intended client; the blob service sets JPEG/MP4 content types and supports video range requests. Stop Azurite and verify readiness becomes 503 while liveness remains 200; restart it and verify recovery. Inspect `exercise` rows with `source='ascend_edb_v2' AND user_id IS NULL`, including `image_urls`, to reconcile all records and variants.
+
+Run the full suite, including real storage upload/readback tests against unique test-owned containers:
+
+```sh
+docker compose up -d --wait postgres-test azurite
+TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test \
+TEST_AZURE_STORAGE_ACCOUNT_NAME=kinetixlocal \
+TEST_AZURE_STORAGE_ACCOUNT_URL=http://127.0.0.1:10000/kinetixlocal \
+TEST_AZURE_STORAGE_ACCOUNT_KEY=a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ== \
+uv run --locked --no-build pytest
+```
+
+PostgreSQL seed tests use isolated test-owned schemas. Blob integration tests create and delete only uniquely named `test-exercises-*` containers; they skip when the explicit test account name/URL/key are absent. CI supplies both PostgreSQL and Azurite, so these checks run there.

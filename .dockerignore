@@ -16,3 +16,9 @@ build
 tests
 uploads
 *.dump
+
+# Exercise export and local blob data are external seed inputs.
+exercices/
+exercises/
+seed-data/
+azurite-data/

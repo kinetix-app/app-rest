@@ -1,6 +1,6 @@
 UV ?= uv
 
-.PHONY: setup db dev migrate check
+.PHONY: setup db storage dev migrate seed-exercises check
 
 setup:
 	$(UV) sync --locked --group dev --no-build
@@ -9,8 +9,14 @@ setup:
 db:
 	docker compose up -d --wait postgres
 
-dev: db
+storage:
+	docker compose up -d --wait azurite
+
+dev: db storage
 	$(UV) run --locked --no-build uvicorn app.main:create_app --factory --reload --no-access-log
+
+seed-exercises: storage migrate
+	$(UV) run --locked --no-build python -m app.features.training.seed --dataset "$(DATASET)"
 
 migrate: db
 	$(UV) run --locked --no-build alembic upgrade head

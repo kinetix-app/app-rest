@@ -107,3 +107,40 @@ def clerk_jwks(monkeypatch, signing_material):
     )
     remote.requests = requests
     return remote
+
+
+@pytest.fixture
+def exercise_export(tmp_path):
+    """Small local export; media bytes are synthetic and never fetched from providers."""
+    import json
+
+    root = tmp_path / "exercices"
+    folder = root / "bench-press"
+    (folder / "images").mkdir(parents=True)
+    (folder / "images" / "480p.jpg").write_bytes(b"test image 480")
+    (folder / "images" / "720p.jpg").write_bytes(b"test image 720")
+    (folder / "video.mp4").write_bytes(b"test video")
+    metadata = {
+        "exerciseId": "exr_seed_test",
+        "name": "Bench press",
+        "imageUrl": "https://provider.example/480.jpg",
+        "imageUrls": {
+            "480p": "https://provider.example/480.jpg",
+            "720p": "https://provider.example/720.jpg",
+        },
+        "videoUrl": "https://provider.example/video.mp4",
+        "equipments": ["BARBELL"],
+        "bodyParts": ["CHEST"],
+        "exerciseType": "STRENGTH",
+        "targetMuscles": ["PECTORALIS"],
+        "secondaryMuscles": ["TRICEPS"],
+        "keywords": ["barbell"],
+        "overview": "A test movement",
+        "instructions": ["Press"],
+        "exerciseTips": ["Control"],
+        "variations": ["Dumbbells"],
+        "relatedExerciseIds": ["exr_related"],
+    }
+    (folder / "data.json").write_text(json.dumps(metadata))
+    (root / "index.json").write_text(json.dumps({metadata["exerciseId"]: folder.name}))
+    return root

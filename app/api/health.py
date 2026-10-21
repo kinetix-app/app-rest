@@ -1,5 +1,6 @@
 import asyncio
 
+from azure.core.exceptions import AzureError
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -23,7 +24,10 @@ async def liveness() -> HealthResponse:
     response_model=None,
     responses={
         200: {"model": HealthResponse},
-        503: {"model": HealthResponse, "description": "Database unavailable"},
+        503: {
+            "model": HealthResponse,
+            "description": "Database or configured blob storage unavailable",
+        },
     },
 )
 async def readiness(request: Request) -> HealthResponse | JSONResponse:
@@ -31,6 +35,8 @@ async def readiness(request: Request) -> HealthResponse | JSONResponse:
         async with asyncio.timeout(request.app.state.settings.database_timeout_seconds):
             async with request.app.state.engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
-    except SQLAlchemyError, OSError:
+        if request.app.state.blob_storage is not None:
+            await request.app.state.blob_storage.check()
+    except SQLAlchemyError, AzureError, OSError:
         return JSONResponse(status_code=503, content={"status": "unavailable"})
     return HealthResponse(status="ok")
