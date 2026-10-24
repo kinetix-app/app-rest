@@ -19,6 +19,7 @@ from app.features.training.schemas import (
     ExercisePage,
     ExerciseResponse,
     ExerciseSelection,
+    PlannedSet,
     RoutineCreate,
     RoutineExerciseResponse,
     RoutinePage,
@@ -238,17 +239,15 @@ async def create_routine(
         routine_id = await session.scalar(
             routine.insert().values(user_id=user_id, name=data.name).returning(routine.c.id)
         )
-        await session.execute(
-            routine_exercise.insert(),
-            [
-                {
-                    "routine_id": routine_id,
-                    "exercise_id": item.exercise_id,
-                    "exercise_order": position,
-                }
-                for position, item in enumerate(data.exercises, 1)
-            ],
-        )
+        for position, item in enumerate(data.exercises, 1):
+            slot_id = await session.scalar(
+                routine_exercise.insert()
+                .values(
+                    routine_id=routine_id, exercise_id=item.exercise_id, exercise_order=position
+                )
+                .returning(routine_exercise.c.id)
+            )
+            await replace_sets(session, slot_id, item.sets or [])
         response = await get_routine(session, user_id, routine_id)
         await session.commit()
         return response
@@ -296,9 +295,12 @@ async def update_routine(
             for position, item in enumerate(data.exercises, 1):
                 values = {"exercise_id": item.exercise_id, "exercise_order": position}
                 if item.id is None:
-                    await session.execute(
-                        routine_exercise.insert().values(routine_id=routine_id, **values)
+                    slot_id = await session.scalar(
+                        routine_exercise.insert()
+                        .values(routine_id=routine_id, **values)
+                        .returning(routine_exercise.c.id)
                     )
+                    await replace_sets(session, slot_id, item.sets or [])
                 else:
                     if existing[item.id]["exercise_id"] != item.exercise_id:
                         await session.execute(
@@ -311,6 +313,8 @@ async def update_routine(
                         .where(routine_exercise.c.id == item.id)
                         .values(**values)
                     )
+                    if item.sets is not None:
+                        await replace_sets(session, item.id, item.sets)
         if data.name is not None:
             await session.execute(
                 sa.update(routine).where(routine.c.id == routine_id).values(name=data.name)
@@ -321,3 +325,22 @@ async def update_routine(
     except Exception:
         await session.rollback()
         raise
+
+
+async def replace_sets(session: AsyncSession, slot_id: int, sets: Sequence[PlannedSet]) -> None:
+    await session.execute(
+        sa.delete(routine_exercise_set).where(routine_exercise_set.c.routine_exercise_id == slot_id)
+    )
+    if sets:
+        await session.execute(
+            routine_exercise_set.insert(),
+            [
+                {
+                    "routine_exercise_id": slot_id,
+                    "set_number": number,
+                    "reps": item.reps,
+                    "weight_kg": item.weight_kg,
+                }
+                for number, item in enumerate(sets, 1)
+            ],
+        )

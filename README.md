@@ -353,8 +353,12 @@ and empty patches are rejected. When replacing the selection, send an existing s
 Slot IDs must belong to this routine and appear at most once. An omitted/null slot ID
 creates a new slot; existing slots omitted from the replacement are removed. Retaining
 a slot with the same exercise preserves its notes/default sets. Changing its exercise
-clears incompatible defaults. Notes/default-set editing and session recording are outside
-this API increment.
+clears incompatible defaults. Selections may include `sets: [{"reps": 8, "weight_kg": "80.00"}]` to save gym defaults.
+Set order determines set numbers; repetitions are positive integers and kilograms are
+nonnegative decimals (at most two decimal places and 999999.99 kg). Each slot supports
+up to 100 sets. Omitting `sets` preserves defaults for a retained exercise; `sets: []`
+clears defaults and explicit `null` is rejected. Set changes commit with the routine
+transaction. Notes editing and session recording remain separate work.
 
 Loading a routine resolves set measurements from the current account's latest completed
 session for that routine (`ended_at DESC, id DESC`). Matching uses both stable slot ID and

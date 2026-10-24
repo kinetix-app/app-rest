@@ -462,3 +462,78 @@ async def test_authentication_and_validation(training_api):
     assert (
         await api.client.patch("/api/v1/routines/999999", auth=api.alice, json={"name": "No"})
     ).status_code == 404
+
+
+async def test_planned_sets_roundtrip_patch_omission_and_history(training_api):
+    api = training_api
+    payload = {
+        "name": "Planned",
+        "exercises": [
+            {
+                "exercise_id": api.catalogue[0],
+                "sets": [
+                    {"reps": 8, "weight_kg": "80.00"},
+                    {"reps": 10, "weight_kg": "0"},
+                ],
+            }
+        ],
+    }
+    response = await api.client.post("/api/v1/routines", auth=api.alice, json=payload)
+    assert response.status_code == 201, response.text
+    saved = response.json()
+    slot = saved["exercises"][0]
+    assert [row["set_number"] for row in slot["default_sets"]] == [1, 2]
+    assert [row["weight_kg"] for row in slot["default_sets"]] == ["80.00", "0.00"]
+    path = f"/api/v1/routines/{saved['id']}"
+    assert (await api.client.get(path, auth=api.alice)).json() == saved
+    session_id = await add_workout(
+        api, saved["id"], [slot], ended_at=datetime(2026, 10, 21), reps=12
+    )
+    selection = {"id": slot["id"], "exercise_id": api.catalogue[0]}
+    preserved = await api.client.patch(path, auth=api.alice, json={"exercises": [selection]})
+    assert preserved.json()["exercises"][0]["default_sets"] == slot["default_sets"]
+    updated = await api.client.patch(
+        path,
+        auth=api.alice,
+        json={
+            "exercises": [
+                {
+                    **selection,
+                    "sets": [{"reps": 6, "weight_kg": "85.25"}],
+                }
+            ]
+        },
+    )
+    assert updated.status_code == 200
+    result = updated.json()["exercises"][0]
+    assert result["default_sets"][0]["reps"] == 6
+    assert result["sets"][0]["reps"] == 12
+    async with api.sessions() as session:
+        entry = await session.scalar(
+            sa.select(session_exercise.c.id).where(session_exercise.c.session_id == session_id)
+        )
+        assert (
+            await session.scalar(
+                sa.select(exercise_set.c.reps).where(exercise_set.c.session_exercise_id == entry)
+            )
+            == 12
+        )
+    for bad in (
+        None,
+        [{"reps": 0, "weight_kg": "1"}],
+        [{"reps": True, "weight_kg": "1"}],
+        [{"reps": 8, "weight_kg": "1.001"}],
+        [{"reps": 8, "weight_kg": "NaN"}],
+        [{"reps": 8, "weight_kg": "-1"}],
+    ):
+        rejected = await api.client.patch(
+            path,
+            auth=api.alice,
+            json={"name": "Not saved", "exercises": [{**selection, "sets": bad}]},
+        )
+        assert rejected.status_code == 422
+    assert (await api.client.get(path, auth=api.alice)).json()["name"] == "Planned"
+    cleared = await api.client.patch(
+        path, auth=api.alice, json={"exercises": [{**selection, "sets": []}]}
+    )
+    assert cleared.json()["exercises"][0]["default_sets"] == []

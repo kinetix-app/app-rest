@@ -12,8 +12,20 @@ class InputModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class PlannedSet(InputModel):
+    reps: int = Field(strict=True, ge=1, le=2**31 - 1)
+    weight_kg: Decimal = Field(ge=0, max_digits=8, decimal_places=2, allow_inf_nan=False)
+
+
 class ExerciseSelection(InputModel):
     exercise_id: EntityId
+    sets: list[PlannedSet] | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_sets(self) -> Self:
+        if "sets" in self.model_fields_set and self.sets is None:
+            raise ValueError("Sets cannot be null; omit to preserve or use [] to clear")
+        return self
 
 
 class ExerciseSelectionPatch(ExerciseSelection):
