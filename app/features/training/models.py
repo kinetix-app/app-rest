@@ -1,4 +1,4 @@
-"""Training persistence metadata shared by the routine API and exercise seed command."""
+"""Persistence metadata for the initial product schema; APIs are feature work."""
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
