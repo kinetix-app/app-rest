@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
@@ -15,6 +15,7 @@ from app.features.nutrition.service import (
     delete_food,
     get_food,
     get_nutrition_goal,
+    search_foods,
     update_food,
     update_nutrition_goal,
 )
@@ -66,6 +67,15 @@ async def patch_nutrition_goal(
             status_code=status.HTTP_404_NOT_FOUND, detail="Nutrition goal not found"
         )
     return goal
+
+
+@router.get("", response_model=list[FoodResponse])
+async def get_foods(
+    user: CurrentUser,
+    session: DatabaseSession,
+    name: str = Query(min_length=1, max_length=150),
+) -> list[FoodResponse]:
+    return await search_foods(session, user.id, name)
 
 
 # Endpoint to create a new food item for the authenticated user

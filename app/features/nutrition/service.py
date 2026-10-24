@@ -72,6 +72,16 @@ async def get_food(
     return result.mappings().one_or_none()
 
 
+async def search_foods(db: AsyncSession, user_id: int, name: str):
+    result = await db.execute(
+        select(food)
+        .where(food.c.user_id == user_id, food.c.name.icontains(name.strip(), autoescape=True))
+        .order_by(food.c.name, food.c.id)
+        .limit(20)
+    )
+    return result.mappings().all()
+
+
 # Service function to update a food item by its ID for a specific user
 async def update_food(
     db: AsyncSession,
