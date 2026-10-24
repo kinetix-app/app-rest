@@ -30,6 +30,28 @@ class FoodPatch(BaseModel):
     barcode: str | None = Field(default=None, max_length=50)
 
 
+class RecipeIngredientInput(BaseModel):
+    food_id: int = Field(gt=0)
+    quantity_grams: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
+
+
+class RecipeCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+    servings: int = Field(default=1, ge=1, le=100)
+    ingredients: list[RecipeIngredientInput] = Field(min_length=1)
+
+
+class RecipeResponse(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    servings: int
+    calories: Decimal
+    protein: Decimal
+    carbohydrates: Decimal
+    fats: Decimal
+
+
 class NutritionGoalResponse(BaseModel):
     id: int
     user_id: int
@@ -53,12 +75,21 @@ class MealItemCreate(BaseModel):
     quantity_grams: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
 
 
+class RecipeMealItemCreate(BaseModel):
+    date: date
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
+    recipe_id: int = Field(gt=0)
+    servings: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
+
+
 class MealItemResponse(BaseModel):
     id: int
     meal_type: str
-    food_id: int
+    food_id: int | None = None
+    recipe_id: int | None = None
     name: str
-    quantity_grams: Decimal
+    quantity_grams: Decimal | None = None
+    servings: Decimal | None = None
     calories: Decimal
     protein: Decimal
     carbohydrates: Decimal

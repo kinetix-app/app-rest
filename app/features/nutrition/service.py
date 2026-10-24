@@ -1,8 +1,23 @@
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.nutrition.models import food, meal, meal_item, nutrition_day, nutrition_goal
-from app.features.nutrition.schemas import FoodCreate, FoodPatch, MealItemCreate, NutritionGoalInput
+from app.features.nutrition.models import (
+    food,
+    meal,
+    meal_item,
+    nutrition_day,
+    nutrition_goal,
+    recipe,
+    recipe_ingredient,
+)
+from app.features.nutrition.schemas import (
+    FoodCreate,
+    FoodPatch,
+    MealItemCreate,
+    NutritionGoalInput,
+    RecipeCreate,
+    RecipeMealItemCreate,
+)
 
 
 # Service functions for managing food items in the database
@@ -80,6 +95,167 @@ async def search_foods(db: AsyncSession, user_id: int, name: str):
         .limit(20)
     )
     return result.mappings().all()
+
+
+async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
+    food_ids = {ingredient.food_id for ingredient in data.ingredients}
+    owned_food_ids = set(
+        (
+            await db.execute(
+                select(food.c.id).where(food.c.user_id == user_id, food.c.id.in_(food_ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if owned_food_ids != food_ids:
+        return None
+
+    await db.rollback()
+    async with db.begin():
+        created = (
+            (
+                await db.execute(
+                    insert(recipe)
+                    .values(user_id=user_id, name=data.name, servings=data.servings)
+                    .returning(recipe)
+                )
+            )
+            .mappings()
+            .one()
+        )
+        await db.execute(
+            insert(recipe_ingredient),
+            [
+                {
+                    "recipe_id": created["id"],
+                    "food_id": ingredient.food_id,
+                    "quantity_grams": ingredient.quantity_grams,
+                }
+                for ingredient in data.ingredients
+            ],
+        )
+    return (await get_recipes(db, user_id, recipe_id=created["id"]))[0]
+
+
+async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = None):
+    conditions = [recipe.c.user_id == user_id]
+    if recipe_id is not None:
+        conditions.append(recipe.c.id == recipe_id)
+    rows = (
+        (
+            await db.execute(
+                select(
+                    recipe.c.id,
+                    recipe.c.user_id,
+                    recipe.c.name,
+                    recipe.c.servings,
+                    recipe_ingredient.c.quantity_grams,
+                    food.c.calories,
+                    food.c.protein,
+                    food.c.carbohydrates,
+                    food.c.fats,
+                )
+                .select_from(recipe.join(recipe_ingredient).join(food))
+                .where(*conditions)
+                .order_by(recipe.c.name, recipe.c.id)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    recipes = {}
+    for row in rows:
+        item = recipes.setdefault(
+            row["id"],
+            {
+                "id": row["id"],
+                "user_id": row["user_id"],
+                "name": row["name"],
+                "servings": row["servings"],
+                "calories": 0,
+                "protein": 0,
+                "carbohydrates": 0,
+                "fats": 0,
+            },
+        )
+        factor = row["quantity_grams"] / 100 / row["servings"]
+        for macro in ("calories", "protein", "carbohydrates", "fats"):
+            item[macro] += row[macro] * factor
+    return list(recipes.values())
+
+
+async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMealItemCreate):
+    recipes = await get_recipes(db, user_id, recipe_id=data.recipe_id)
+    if not recipes:
+        return None
+    source = recipes[0]
+    await db.rollback()
+    async with db.begin():
+        day = (
+            (
+                await db.execute(
+                    select(nutrition_day).where(
+                        nutrition_day.c.user_id == user_id, nutrition_day.c.date == data.date
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if day is None:
+            day = (
+                (
+                    await db.execute(
+                        nutrition_day.insert()
+                        .values(user_id=user_id, date=data.date)
+                        .returning(nutrition_day)
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        entry = (
+            (
+                await db.execute(
+                    select(meal).where(
+                        meal.c.nutrition_day_id == day["id"], meal.c.meal_type == data.meal_type
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if entry is None:
+            entry = (
+                (
+                    await db.execute(
+                        meal.insert()
+                        .values(nutrition_day_id=day["id"], meal_type=data.meal_type)
+                        .returning(meal)
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        item_id = (
+            await db.execute(
+                meal_item.insert()
+                .values(meal_id=entry["id"], recipe_id=data.recipe_id, servings=data.servings)
+                .returning(meal_item.c.id)
+            )
+        ).scalar_one()
+    return {
+        "id": item_id,
+        "meal_type": data.meal_type,
+        "recipe_id": data.recipe_id,
+        "name": source["name"],
+        "servings": data.servings,
+        **{
+            macro: source[macro] * data.servings
+            for macro in ("calories", "protein", "carbohydrates", "fats")
+        },
+    }
 
 
 async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate):
@@ -207,6 +383,55 @@ async def get_nutrition_day(db: AsyncSession, user_id: int, day_date):
             "quantity_grams": row["quantity_grams"],
             **{key: row[key] * factor for key in totals},
         }
+        items.append(item)
+        for key in totals:
+            totals[key] += item[key]
+    recipe_rows = (
+        (
+            await db.execute(
+                select(
+                    meal.c.meal_type,
+                    meal_item.c.id,
+                    meal_item.c.recipe_id,
+                    meal_item.c.servings.label("logged_servings"),
+                    recipe.c.name,
+                    recipe.c.servings.label("recipe_servings"),
+                    recipe_ingredient.c.quantity_grams,
+                    food.c.calories,
+                    food.c.protein,
+                    food.c.carbohydrates,
+                    food.c.fats,
+                )
+                .select_from(
+                    nutrition_day.join(meal)
+                    .join(meal_item)
+                    .join(recipe, meal_item.c.recipe_id == recipe.c.id)
+                    .join(recipe_ingredient, recipe_ingredient.c.recipe_id == recipe.c.id)
+                    .join(food, recipe_ingredient.c.food_id == food.c.id)
+                )
+                .where(nutrition_day.c.user_id == user_id, nutrition_day.c.date == day_date)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    recipe_items = {}
+    for row in recipe_rows:
+        item = recipe_items.setdefault(
+            row["id"],
+            {
+                "id": row["id"],
+                "meal_type": row["meal_type"],
+                "recipe_id": row["recipe_id"],
+                "name": row["name"],
+                "servings": row["logged_servings"],
+                **{key: 0 for key in totals},
+            },
+        )
+        factor = row["quantity_grams"] / 100 / row["recipe_servings"] * row["logged_servings"]
+        for key in totals:
+            item[key] += row[key] * factor
+    for item in recipe_items.values():
         items.append(item)
         for key in totals:
             totals[key] += item[key]

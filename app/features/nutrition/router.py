@@ -13,21 +13,28 @@ from app.features.nutrition.schemas import (
     NutritionDayResponse,
     NutritionGoalInput,
     NutritionGoalResponse,
+    RecipeCreate,
+    RecipeMealItemCreate,
+    RecipeResponse,
 )
 from app.features.nutrition.service import (
     create_food,
     create_meal_item,
     create_nutrition_goal,
+    create_recipe,
+    create_recipe_meal_item,
     delete_food,
     get_food,
     get_nutrition_day,
     get_nutrition_goal,
+    get_recipes,
     search_foods,
     update_food,
     update_nutrition_goal,
 )
 
 router = APIRouter(prefix="/foods", tags=["nutrition"])
+recipe_router = APIRouter(prefix="/recipes", tags=["nutrition"])
 
 nutrition_goal_router = APIRouter(prefix="/nutrition-goals", tags=["nutrition"])
 
@@ -85,6 +92,21 @@ async def get_foods(
     return await search_foods(session, user.id, name)
 
 
+@recipe_router.post("", response_model=RecipeResponse, status_code=status.HTTP_201_CREATED)
+async def post_recipe(
+    data: RecipeCreate, user: CurrentUser, session: DatabaseSession
+) -> RecipeResponse:
+    created = await create_recipe(session, user.id, data)
+    if created is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    return created
+
+
+@recipe_router.get("", response_model=list[RecipeResponse])
+async def read_recipes(user: CurrentUser, session: DatabaseSession) -> list[RecipeResponse]:
+    return await get_recipes(session, user.id)
+
+
 meal_router = APIRouter(prefix="/nutrition", tags=["nutrition"])
 
 
@@ -97,6 +119,18 @@ async def post_meal_item(
     item = await create_meal_item(session, user.id, data)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    return item
+
+
+@meal_router.post(
+    "/recipe-items", response_model=MealItemResponse, status_code=status.HTTP_201_CREATED
+)
+async def post_recipe_meal_item(
+    data: RecipeMealItemCreate, user: CurrentUser, session: DatabaseSession
+) -> MealItemResponse:
+    item = await create_recipe_meal_item(session, user.id, data)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
     return item
 
 
