@@ -301,16 +301,28 @@ active local account; clients never supply an owner ID.
 | `GET /api/v1/routines/{id}` | Read an owned routine, its ordered slots and exercise details. |
 | `POST /api/v1/routines` | Save a routine and return its detail with status 201. |
 | `PATCH /api/v1/routines/{id}` | Change its name and/or replace its ordered exercise selection. |
-| `GET /api/v1/exercises` | Browse selectable gym exercises; optionally filter by `muscle_group`. |
+| `GET /api/v1/exercises` | Browse selectable gym exercises; optionally filter by `body_part`. |
+| `GET /api/v1/exercises/body-parts` | Sorted distinct selectable body-part names for filter chips. |
+| `GET /api/v1/exercises/muscle-groups` | Legacy target-muscle options. |
 | `GET /api/v1/exercises/{id}` | Read a selectable gym exercise, instructions and media URLs. |
 
 List routes accept `limit` (1–100, default 50) and `offset` (nonnegative, default 0).
 Responses contain `items`, `limit` and `offset`, ordered by local ID. Continue pagination
-until a page has fewer than `limit` items. The exercise filter is a case-insensitive exact
-match against `target_muscles`, with surrounding whitespace ignored:
-`GET /api/v1/exercises?muscle_group=PECTORALIS`. Omitted/blank `muscle_group` returns all
-selectable exercises, including ones without target-muscle metadata. Secondary muscles
-and body parts are separate metadata and are not matched by this filter.
+until a page has fewer than `limit` items. The repeatable `body_part` exercise filter (up to 30 values, 100
+characters each) matches `body_parts` case-insensitively, ignoring surrounding whitespace:
+`GET /api/v1/exercises?body_part=CHEST&body_part=BACK`. Multiple values match **any**
+selected body part (OR); duplicate/case variants do not duplicate exercises. Omitted/blank filters return all selectable
+exercises, including those without body-part metadata. The legacy `muscle_group` filter
+still matches target muscles for existing API clients; the application uses body parts.
+Exercise lists also accept `name` (up to 200 characters); routine lists accept `name`
+(up to 150). Name search is a case-insensitive literal substring, ignoring surrounding
+whitespace. `%` and `_` are ordinary characters. Name, body-part selection and legacy muscle filters combine with AND, before pagination.
+
+Exercise lists project only `id`, `name`, `activity_type`, `body_parts`, `target_muscles`,
+`equipments` and `image_url` in SQL and in the summary DTO. Instructions, overview and
+media variants remain on exercise detail and nested routine detail. Body-part options
+come from the full accessible catalogue independently of name search and pagination;
+private/non-gym exercises cannot disclose filter options.
 
 Selectable exercises are the explicitly seeded global V2 gym catalogue
 (`source=ascend_edb_v2`, external ID and import timestamp present) and the account's own
