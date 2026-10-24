@@ -24,6 +24,8 @@ from app.features.nutrition.service import (
     create_recipe,
     create_recipe_meal_item,
     delete_food,
+    delete_meal_item,
+    delete_recipe,
     get_food,
     get_nutrition_day,
     get_nutrition_goal,
@@ -87,7 +89,7 @@ async def patch_nutrition_goal(
 async def get_foods(
     user: CurrentUser,
     session: DatabaseSession,
-    name: str = Query(min_length=1, max_length=150),
+    name: str | None = Query(default=None, min_length=1, max_length=150),
 ) -> list[FoodResponse]:
     return await search_foods(session, user.id, name)
 
@@ -107,6 +109,18 @@ async def read_recipes(user: CurrentUser, session: DatabaseSession) -> list[Reci
     return await get_recipes(session, user.id)
 
 
+@recipe_router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_recipe(recipe_id: int, user: CurrentUser, session: DatabaseSession) -> None:
+    result = await delete_recipe(session, user.id, recipe_id)
+    if result == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+    if result == "in_use":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A recipe already logged in the diary cannot be deleted",
+        )
+
+
 meal_router = APIRouter(prefix="/nutrition", tags=["nutrition"])
 
 
@@ -120,6 +134,12 @@ async def post_meal_item(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
     return item
+
+
+@meal_router.delete("/meal-items/{meal_item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_meal_item(meal_item_id: int, user: CurrentUser, session: DatabaseSession) -> None:
+    if not await delete_meal_item(session, user.id, meal_item_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal item not found")
 
 
 @meal_router.post(
@@ -160,10 +180,15 @@ async def remove_food(
 ) -> None:
     deleted = await delete_food(session, user.id, food_id)
 
-    if not deleted:
+    if deleted == "not_found":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Food not found",
+        )
+    if deleted == "in_use":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A food used in a recipe or diary cannot be deleted",
         )
 
 

@@ -1,4 +1,4 @@
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.nutrition.models import (
@@ -51,7 +51,22 @@ async def delete_food(
     db: AsyncSession,
     user_id: int,
     food_id: int,
-) -> bool:
+) -> str:
+    source = (
+        await db.execute(select(food.c.id).where(food.c.id == food_id, food.c.user_id == user_id))
+    ).scalar_one_or_none()
+    if source is None:
+        return "not_found"
+    is_used = (
+        await db.execute(
+            select(meal_item.c.id)
+            .where(meal_item.c.food_id == food_id)
+            .union(select(recipe_ingredient.c.id).where(recipe_ingredient.c.food_id == food_id))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if is_used is not None:
+        return "in_use"
     stmt = (
         delete(food)
         .where(
@@ -69,7 +84,7 @@ async def delete_food(
         await db.rollback()
         raise
 
-    return deleted_id is not None
+    return "deleted" if deleted_id is not None else "not_found"
 
 
 # Service function to retrieve a food item by its ID for a specific user
@@ -87,13 +102,16 @@ async def get_food(
     return result.mappings().one_or_none()
 
 
-async def search_foods(db: AsyncSession, user_id: int, name: str):
-    result = await db.execute(
-        select(food)
-        .where(food.c.user_id == user_id, food.c.name.icontains(name.strip(), autoescape=True))
-        .order_by(food.c.name, food.c.id)
-        .limit(20)
-    )
+async def search_foods(db: AsyncSession, user_id: int, name: str | None = None):
+    stmt = select(food).where(food.c.user_id == user_id)
+    if name and name.strip():
+        result = await db.execute(
+            stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
+            .order_by(food.c.name, food.c.id)
+            .limit(20)
+        )
+    else:
+        result = await db.execute(stmt.order_by(func.random()).limit(3))
     return result.mappings().all()
 
 
@@ -185,6 +203,33 @@ async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = No
     return list(recipes.values())
 
 
+async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> str:
+    recipe_row = (
+        await db.execute(
+            select(recipe.c.id).where(recipe.c.id == recipe_id, recipe.c.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if recipe_row is None:
+        return "not_found"
+    is_logged = (
+        await db.execute(select(meal_item.c.id).where(meal_item.c.recipe_id == recipe_id).limit(1))
+    ).scalar_one_or_none()
+    if is_logged is not None:
+        return "in_use"
+    try:
+        await db.execute(
+            delete(recipe_ingredient).where(recipe_ingredient.c.recipe_id == recipe_id)
+        )
+        await db.execute(
+            delete(recipe).where(recipe.c.id == recipe_id, recipe.c.user_id == user_id)
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return "deleted"
+
+
 async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMealItemCreate):
     recipes = await get_recipes(db, user_id, recipe_id=data.recipe_id)
     if not recipes:
@@ -256,6 +301,25 @@ async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMe
             for macro in ("calories", "protein", "carbohydrates", "fats")
         },
     }
+
+
+async def delete_meal_item(db: AsyncSession, user_id: int, meal_item_id: int) -> bool:
+    owned_item = (
+        select(meal_item.c.id)
+        .select_from(meal_item.join(meal).join(nutrition_day))
+        .where(meal_item.c.id == meal_item_id, nutrition_day.c.user_id == user_id)
+    )
+    deleted = (
+        await db.execute(
+            delete(meal_item)
+            .where(
+                meal_item.c.id.in_(owned_item),
+            )
+            .returning(meal_item.c.id)
+        )
+    ).scalar_one_or_none()
+    await db.commit()
+    return deleted is not None
 
 
 async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate):
