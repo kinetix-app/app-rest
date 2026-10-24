@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -39,11 +40,11 @@ router = APIRouter(prefix="/foods", tags=["nutrition"])
 recipe_router = APIRouter(prefix="/recipes", tags=["nutrition"])
 
 nutrition_goal_router = APIRouter(prefix="/nutrition-goals", tags=["nutrition"])
+FOOD_NOT_FOUND = "Food not found"
 
 
 @nutrition_goal_router.get(
     "/me",
-    response_model=NutritionGoalResponse,
 )
 async def read_nutrition_goal(
     user: CurrentUser,
@@ -60,9 +61,7 @@ async def read_nutrition_goal(
     return goal
 
 
-@nutrition_goal_router.post(
-    "", response_model=NutritionGoalResponse, status_code=status.HTTP_201_CREATED
-)
+@nutrition_goal_router.post("", status_code=status.HTTP_201_CREATED)
 async def post_nutrition_goal(
     data: NutritionGoalInput, user: CurrentUser, session: DatabaseSession
 ) -> NutritionGoalResponse:
@@ -73,7 +72,7 @@ async def post_nutrition_goal(
     return await create_nutrition_goal(session, user.id, data)
 
 
-@nutrition_goal_router.patch("/me", response_model=NutritionGoalResponse)
+@nutrition_goal_router.patch("/me")
 async def patch_nutrition_goal(
     data: NutritionGoalInput, user: CurrentUser, session: DatabaseSession
 ) -> NutritionGoalResponse:
@@ -85,26 +84,26 @@ async def patch_nutrition_goal(
     return goal
 
 
-@router.get("", response_model=list[FoodResponse])
+@router.get("")
 async def get_foods(
     user: CurrentUser,
     session: DatabaseSession,
-    name: str | None = Query(default=None, min_length=1, max_length=150),
+    name: Annotated[str | None, Query(min_length=1, max_length=150)] = None,
 ) -> list[FoodResponse]:
     return await search_foods(session, user.id, name)
 
 
-@recipe_router.post("", response_model=RecipeResponse, status_code=status.HTTP_201_CREATED)
+@recipe_router.post("", status_code=status.HTTP_201_CREATED)
 async def post_recipe(
     data: RecipeCreate, user: CurrentUser, session: DatabaseSession
 ) -> RecipeResponse:
     created = await create_recipe(session, user.id, data)
     if created is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FOOD_NOT_FOUND)
     return created
 
 
-@recipe_router.get("", response_model=list[RecipeResponse])
+@recipe_router.get("")
 async def read_recipes(user: CurrentUser, session: DatabaseSession) -> list[RecipeResponse]:
     return await get_recipes(session, user.id)
 
@@ -124,15 +123,13 @@ async def remove_recipe(recipe_id: int, user: CurrentUser, session: DatabaseSess
 meal_router = APIRouter(prefix="/nutrition", tags=["nutrition"])
 
 
-@meal_router.post(
-    "/meal-items", response_model=MealItemResponse, status_code=status.HTTP_201_CREATED
-)
+@meal_router.post("/meal-items", status_code=status.HTTP_201_CREATED)
 async def post_meal_item(
     data: MealItemCreate, user: CurrentUser, session: DatabaseSession
 ) -> MealItemResponse:
     item = await create_meal_item(session, user.id, data)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FOOD_NOT_FOUND)
     return item
 
 
@@ -142,9 +139,7 @@ async def remove_meal_item(meal_item_id: int, user: CurrentUser, session: Databa
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meal item not found")
 
 
-@meal_router.post(
-    "/recipe-items", response_model=MealItemResponse, status_code=status.HTTP_201_CREATED
-)
+@meal_router.post("/recipe-items", status_code=status.HTTP_201_CREATED)
 async def post_recipe_meal_item(
     data: RecipeMealItemCreate, user: CurrentUser, session: DatabaseSession
 ) -> MealItemResponse:
@@ -154,7 +149,7 @@ async def post_recipe_meal_item(
     return item
 
 
-@meal_router.get("/days/{day_date}", response_model=NutritionDayResponse)
+@meal_router.get("/days/{day_date}")
 async def read_nutrition_day(
     day_date: date, user: CurrentUser, session: DatabaseSession
 ) -> NutritionDayResponse:
@@ -162,7 +157,7 @@ async def read_nutrition_day(
 
 
 # Endpoint to create a new food item for the authenticated user
-@router.post("", response_model=FoodResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def post_food(
     data: FoodCreate,
     user: CurrentUser,
@@ -183,7 +178,7 @@ async def remove_food(
     if deleted == "not_found":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Food not found",
+            detail=FOOD_NOT_FOUND,
         )
     if deleted == "in_use":
         raise HTTPException(
@@ -193,7 +188,7 @@ async def remove_food(
 
 
 # Endpoint to retrieve a food item by its ID for the authenticated user
-@router.get("/{food_id}", response_model=FoodResponse)
+@router.get("/{food_id}")
 async def read_food(
     food_id: int,
     user: CurrentUser,
@@ -204,14 +199,14 @@ async def read_food(
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Food not found",
+            detail=FOOD_NOT_FOUND,
         )
 
     return result
 
 
 # Endpoint to update a food item by its ID for the authenticated user
-@router.patch("/{food_id}", response_model=FoodResponse)
+@router.patch("/{food_id}")
 async def patch_food(
     food_id: int,
     data: FoodPatch,
@@ -229,7 +224,7 @@ async def patch_food(
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Food not found",
+            detail=FOOD_NOT_FOUND,
         )
 
     return updated

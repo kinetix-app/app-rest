@@ -230,6 +230,56 @@ async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> str:
     return "deleted"
 
 
+async def get_or_create_meal(db: AsyncSession, user_id: int, day_date, meal_type: str):
+    day = (
+        (
+            await db.execute(
+                select(nutrition_day).where(
+                    nutrition_day.c.user_id == user_id, nutrition_day.c.date == day_date
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if day is None:
+        day = (
+            (
+                await db.execute(
+                    nutrition_day.insert()
+                    .values(user_id=user_id, date=day_date)
+                    .returning(nutrition_day)
+                )
+            )
+            .mappings()
+            .one()
+        )
+    entry = (
+        (
+            await db.execute(
+                select(meal).where(
+                    meal.c.nutrition_day_id == day["id"], meal.c.meal_type == meal_type
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if entry is None:
+        entry = (
+            (
+                await db.execute(
+                    meal.insert()
+                    .values(nutrition_day_id=day["id"], meal_type=meal_type)
+                    .returning(meal)
+                )
+            )
+            .mappings()
+            .one()
+        )
+    return entry
+
+
 async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMealItemCreate):
     recipes = await get_recipes(db, user_id, recipe_id=data.recipe_id)
     if not recipes:
@@ -237,52 +287,7 @@ async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMe
     source = recipes[0]
     await db.rollback()
     async with db.begin():
-        day = (
-            (
-                await db.execute(
-                    select(nutrition_day).where(
-                        nutrition_day.c.user_id == user_id, nutrition_day.c.date == data.date
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        if day is None:
-            day = (
-                (
-                    await db.execute(
-                        nutrition_day.insert()
-                        .values(user_id=user_id, date=data.date)
-                        .returning(nutrition_day)
-                    )
-                )
-                .mappings()
-                .one()
-            )
-        entry = (
-            (
-                await db.execute(
-                    select(meal).where(
-                        meal.c.nutrition_day_id == day["id"], meal.c.meal_type == data.meal_type
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        if entry is None:
-            entry = (
-                (
-                    await db.execute(
-                        meal.insert()
-                        .values(nutrition_day_id=day["id"], meal_type=data.meal_type)
-                        .returning(meal)
-                    )
-                )
-                .mappings()
-                .one()
-            )
+        entry = await get_or_create_meal(db, user_id, data.date, data.meal_type)
         item_id = (
             await db.execute(
                 meal_item.insert()
@@ -334,52 +339,7 @@ async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate)
     # Close it before opening the atomic day/meal/item write transaction.
     await db.rollback()
     async with db.begin():
-        day = (
-            (
-                await db.execute(
-                    select(nutrition_day).where(
-                        nutrition_day.c.user_id == user_id, nutrition_day.c.date == data.date
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        if day is None:
-            day = (
-                (
-                    await db.execute(
-                        nutrition_day.insert()
-                        .values(user_id=user_id, date=data.date)
-                        .returning(nutrition_day)
-                    )
-                )
-                .mappings()
-                .one()
-            )
-        entry = (
-            (
-                await db.execute(
-                    select(meal).where(
-                        meal.c.nutrition_day_id == day["id"], meal.c.meal_type == data.meal_type
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        if entry is None:
-            entry = (
-                (
-                    await db.execute(
-                        meal.insert()
-                        .values(nutrition_day_id=day["id"], meal_type=data.meal_type)
-                        .returning(meal)
-                    )
-                )
-                .mappings()
-                .one()
-            )
+        entry = await get_or_create_meal(db, user_id, data.date, data.meal_type)
         item = (
             (
                 await db.execute(
@@ -489,7 +449,7 @@ async def get_nutrition_day(db: AsyncSession, user_id: int, day_date):
                 "recipe_id": row["recipe_id"],
                 "name": row["name"],
                 "servings": row["logged_servings"],
-                **{key: 0 for key in totals},
+                **dict.fromkeys(totals, 0),
             },
         )
         factor = row["quantity_grams"] / 100 / row["recipe_servings"] * row["logged_servings"]
