@@ -169,6 +169,50 @@ async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate)
     }
 
 
+async def get_nutrition_day(db: AsyncSession, user_id: int, day_date):
+    rows = (
+        (
+            await db.execute(
+                select(
+                    meal.c.meal_type,
+                    meal_item.c.id,
+                    meal_item.c.food_id,
+                    meal_item.c.quantity_grams,
+                    food.c.name,
+                    food.c.calories,
+                    food.c.protein,
+                    food.c.carbohydrates,
+                    food.c.fats,
+                )
+                .select_from(
+                    nutrition_day.join(meal)
+                    .join(meal_item)
+                    .join(food, meal_item.c.food_id == food.c.id)
+                )
+                .where(nutrition_day.c.user_id == user_id, nutrition_day.c.date == day_date)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fats": 0}
+    items = []
+    for row in rows:
+        factor = row["quantity_grams"] / 100
+        item = {
+            "id": row["id"],
+            "meal_type": row["meal_type"],
+            "food_id": row["food_id"],
+            "name": row["name"],
+            "quantity_grams": row["quantity_grams"],
+            **{key: row[key] * factor for key in totals},
+        }
+        items.append(item)
+        for key in totals:
+            totals[key] += item[key]
+    return {"date": day_date, **totals, "items": items}
+
+
 # Service function to update a food item by its ID for a specific user
 async def update_food(
     db: AsyncSession,

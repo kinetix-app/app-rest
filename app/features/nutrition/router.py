@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.auth.dependencies import CurrentUser
@@ -8,6 +10,7 @@ from app.features.nutrition.schemas import (
     FoodResponse,
     MealItemCreate,
     MealItemResponse,
+    NutritionDayResponse,
     NutritionGoalInput,
     NutritionGoalResponse,
 )
@@ -17,6 +20,7 @@ from app.features.nutrition.service import (
     create_nutrition_goal,
     delete_food,
     get_food,
+    get_nutrition_day,
     get_nutrition_goal,
     search_foods,
     update_food,
@@ -94,6 +98,13 @@ async def post_meal_item(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
     return item
+
+
+@meal_router.get("/days/{day_date}", response_model=NutritionDayResponse)
+async def read_nutrition_day(
+    day_date: date, user: CurrentUser, session: DatabaseSession
+) -> NutritionDayResponse:
+    return await get_nutrition_day(session, user.id, day_date)
 
 
 # Endpoint to create a new food item for the authenticated user

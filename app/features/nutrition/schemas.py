@@ -63,3 +63,12 @@ class MealItemResponse(BaseModel):
     protein: Decimal
     carbohydrates: Decimal
     fats: Decimal
+
+
+class NutritionDayResponse(BaseModel):
+    date: date
+    calories: Decimal
+    protein: Decimal
+    carbohydrates: Decimal
+    fats: Decimal
+    items: list[MealItemResponse]
