@@ -1,4 +1,6 @@
+from datetime import date
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -42,3 +44,22 @@ class NutritionGoalInput(BaseModel):
     protein: Decimal = Field(ge=0, max_digits=8, decimal_places=2)
     carbohydrates: Decimal = Field(ge=0, max_digits=8, decimal_places=2)
     fats: Decimal = Field(ge=0, max_digits=8, decimal_places=2)
+
+
+class MealItemCreate(BaseModel):
+    date: date
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
+    food_id: int = Field(gt=0)
+    quantity_grams: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
+
+
+class MealItemResponse(BaseModel):
+    id: int
+    meal_type: str
+    food_id: int
+    name: str
+    quantity_grams: Decimal
+    calories: Decimal
+    protein: Decimal
+    carbohydrates: Decimal
+    fats: Decimal

@@ -6,11 +6,14 @@ from app.features.nutrition.schemas import (
     FoodCreate,
     FoodPatch,
     FoodResponse,
+    MealItemCreate,
+    MealItemResponse,
     NutritionGoalInput,
     NutritionGoalResponse,
 )
 from app.features.nutrition.service import (
     create_food,
+    create_meal_item,
     create_nutrition_goal,
     delete_food,
     get_food,
@@ -76,6 +79,21 @@ async def get_foods(
     name: str = Query(min_length=1, max_length=150),
 ) -> list[FoodResponse]:
     return await search_foods(session, user.id, name)
+
+
+meal_router = APIRouter(prefix="/nutrition", tags=["nutrition"])
+
+
+@meal_router.post(
+    "/meal-items", response_model=MealItemResponse, status_code=status.HTTP_201_CREATED
+)
+async def post_meal_item(
+    data: MealItemCreate, user: CurrentUser, session: DatabaseSession
+) -> MealItemResponse:
+    item = await create_meal_item(session, user.id, data)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+    return item
 
 
 # Endpoint to create a new food item for the authenticated user

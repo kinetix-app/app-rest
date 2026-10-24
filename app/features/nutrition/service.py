@@ -1,8 +1,8 @@
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.nutrition.models import food, nutrition_goal
-from app.features.nutrition.schemas import FoodCreate, FoodPatch, NutritionGoalInput
+from app.features.nutrition.models import food, meal, meal_item, nutrition_day, nutrition_goal
+from app.features.nutrition.schemas import FoodCreate, FoodPatch, MealItemCreate, NutritionGoalInput
 
 
 # Service functions for managing food items in the database
@@ -80,6 +80,93 @@ async def search_foods(db: AsyncSession, user_id: int, name: str):
         .limit(20)
     )
     return result.mappings().all()
+
+
+async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate):
+    source = (
+        (await db.execute(select(food).where(food.c.id == data.food_id, food.c.user_id == user_id)))
+        .mappings()
+        .one_or_none()
+    )
+    if source is None:
+        return None
+    # The ownership lookup starts SQLAlchemy's implicit read transaction.
+    # Close it before opening the atomic day/meal/item write transaction.
+    await db.rollback()
+    async with db.begin():
+        day = (
+            (
+                await db.execute(
+                    select(nutrition_day).where(
+                        nutrition_day.c.user_id == user_id, nutrition_day.c.date == data.date
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if day is None:
+            day = (
+                (
+                    await db.execute(
+                        nutrition_day.insert()
+                        .values(user_id=user_id, date=data.date)
+                        .returning(nutrition_day)
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        entry = (
+            (
+                await db.execute(
+                    select(meal).where(
+                        meal.c.nutrition_day_id == day["id"], meal.c.meal_type == data.meal_type
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if entry is None:
+            entry = (
+                (
+                    await db.execute(
+                        meal.insert()
+                        .values(nutrition_day_id=day["id"], meal_type=data.meal_type)
+                        .returning(meal)
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        item = (
+            (
+                await db.execute(
+                    meal_item.insert()
+                    .values(
+                        meal_id=entry["id"],
+                        food_id=data.food_id,
+                        quantity_grams=data.quantity_grams,
+                    )
+                    .returning(meal_item.c.id)
+                )
+            )
+            .mappings()
+            .one()
+        )
+    multiplier = data.quantity_grams / 100
+    return {
+        "id": item["id"],
+        "meal_type": data.meal_type,
+        "food_id": data.food_id,
+        "name": source["name"],
+        "quantity_grams": data.quantity_grams,
+        "calories": source["calories"] * multiplier,
+        "protein": source["protein"] * multiplier,
+        "carbohydrates": source["carbohydrates"] * multiplier,
+        "fats": source["fats"] * multiplier,
+    }
 
 
 # Service function to update a food item by its ID for a specific user
