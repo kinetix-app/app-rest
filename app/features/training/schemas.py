@@ -110,7 +110,25 @@ class RoutinePage(BaseModel):
     offset: int
 
 
+class ExerciseSummary(BaseModel):
+    id: int
+    name: str
+    activity_type: str
+    body_parts: list[str] | None
+    target_muscles: list[str] | None
+    equipments: list[str] | None
+    image_url: str | None
+
+
+class MuscleGroupList(BaseModel):
+    items: list[str]
+
+
+class BodyPartList(BaseModel):
+    items: list[str]
+
+
 class ExercisePage(BaseModel):
-    items: list[ExerciseResponse]
+    items: list[ExerciseSummary]
     limit: int
     offset: int

@@ -79,6 +79,7 @@ async def training_api(integration_url):
                                     external_id=f"exr_{i}",
                                     imported_at=datetime.now(UTC),
                                     target_muscles=["PECTORALIS"] if i % 2 == 0 else ["QUADRICEPS"],
+                                    body_parts=["CHEST"] if i % 2 == 0 else ["UPPER ARMS"],
                                     secondary_muscles=["TRICEPS"],
                                     instructions=["Control the movement"],
                                     image_url="https://media.example/image.jpg",
@@ -537,3 +538,154 @@ async def test_planned_sets_roundtrip_patch_omission_and_history(training_api):
         path, auth=api.alice, json={"exercises": [{**selection, "sets": []}]}
     )
     assert cleared.json()["exercises"][0]["default_sets"] == []
+
+
+async def test_catalogue_groups_name_search_and_summary_projection(training_api):
+    api = training_api
+    async with api.sessions.begin() as session:
+        await session.execute(
+            sa.update(exercise)
+            .where(exercise.c.id == api.private)
+            .values(target_muscles=["PRIVATE_ONLY"])
+        )
+        await session.execute(
+            sa.update(exercise)
+            .where(exercise.c.id == api.running)
+            .values(target_muscles=["RUNNING_ONLY"])
+        )
+        await session.execute(
+            sa.update(exercise)
+            .where(exercise.c.id == api.own)
+            .values(name="100%_Press", target_muscles=["DELTOID", "", "PECTORALIS"])
+        )
+    groups = await api.client.get("/api/v1/exercises/muscle-groups", auth=api.alice)
+    assert groups.status_code == 200
+    assert groups.json() == {"items": ["DELTOID", "PECTORALIS", "QUADRICEPS"]}
+    assert (await api.client.get("/api/v1/exercises/muscle-groups")).status_code == 401
+    bob_groups = await api.client.get("/api/v1/exercises/muscle-groups", auth=api.bob)
+    assert "PRIVATE_ONLY" in bob_groups.json()["items"]
+    assert "DELTOID" not in bob_groups.json()["items"]
+    filtered = await api.client.get(
+        "/api/v1/exercises",
+        auth=api.alice,
+        params={"name": " CATALOGUE ", "muscle_group": "pectORALis", "limit": 2, "offset": 1},
+    )
+    assert [item["id"] for item in filtered.json()["items"]] == api.catalogue[2:6:2]
+    assert set(filtered.json()["items"][0]) == {
+        "id",
+        "name",
+        "activity_type",
+        "body_parts",
+        "target_muscles",
+        "equipments",
+        "image_url",
+    }
+    literal = await api.client.get("/api/v1/exercises", auth=api.alice, params={"name": "%_"})
+    assert [item["id"] for item in literal.json()["items"]] == [api.own]
+    for name in ("missing", "Bob private"):
+        assert (
+            await api.client.get("/api/v1/exercises", auth=api.alice, params={"name": name})
+        ).json()["items"] == []
+    before = (await api.client.get("/api/v1/exercises", auth=api.alice)).json()
+    assert (
+        await api.client.get("/api/v1/exercises", auth=api.alice, params={"name": "  "})
+    ).json() == before
+    assert (
+        await api.client.get("/api/v1/exercises", auth=api.alice, params={"name": "a" * 201})
+    ).status_code == 422
+    # Full details stay on demand even though the list is projected in SQL.
+    detail = await api.client.get(f"/api/v1/exercises/{api.catalogue[0]}", auth=api.alice)
+    assert detail.json()["instructions"] == ["Control the movement"]
+
+
+async def test_routine_name_search_is_literal_and_owned(training_api):
+    api = training_api
+    saved = await create(api)
+    await api.client.patch(
+        f"/api/v1/routines/{saved['id']}", auth=api.alice, json={"name": "Push 100%_"}
+    )
+    for name in (" PUSH ", "%_"):
+        result = await api.client.get("/api/v1/routines", auth=api.alice, params={"name": name})
+        assert [item["id"] for item in result.json()["items"]] == [saved["id"]]
+    assert (await api.client.get("/api/v1/routines", auth=api.bob, params={"name": "Push"})).json()[
+        "items"
+    ] == []
+    assert (
+        await api.client.get("/api/v1/routines", auth=api.alice, params={"name": "x" * 151})
+    ).status_code == 422
+
+
+async def test_body_part_options_filtering_and_visibility(training_api):
+    api = training_api
+    async with api.sessions.begin() as session:
+        for record, parts in (
+            (api.private, ["PRIVATE_ONLY"]),
+            (api.running, ["RUNNING_ONLY"]),
+            (api.unowned, ["UNPUBLISHED_ONLY"]),
+            (api.own, [" BACK ", "", "CHEST", "CHEST"]),
+        ):
+            await session.execute(
+                sa.update(exercise).where(exercise.c.id == record).values(body_parts=parts)
+            )
+    path = "/api/v1/exercises/body-parts"
+    assert (await api.client.get(path)).status_code == 401
+    options = await api.client.get(path, auth=api.alice)
+    assert options.json() == {"items": ["BACK", "CHEST", "UPPER ARMS"]}
+    assert (await api.client.get(path, auth=api.bob)).json() == {
+        "items": ["CHEST", "PRIVATE_ONLY", "UPPER ARMS"]
+    }
+    result = await api.client.get(
+        "/api/v1/exercises",
+        auth=api.alice,
+        params={"body_part": " cHeSt ", "name": "catalogue", "limit": 2, "offset": 1},
+    )
+    assert result.status_code == 200
+    assert [item["id"] for item in result.json()["items"]] == api.catalogue[2:6:2]
+    back = await api.client.get("/api/v1/exercises", auth=api.alice, params={"body_part": "back"})
+    assert [item["id"] for item in back.json()["items"]] == [api.own]
+    for part in ("missing", "PRIVATE_ONLY", "RUNNING_ONLY", "UNPUBLISHED_ONLY"):
+        assert (
+            await api.client.get("/api/v1/exercises", auth=api.alice, params={"body_part": part})
+        ).json()["items"] == []
+    all_items = (await api.client.get("/api/v1/exercises", auth=api.alice)).json()
+    assert (
+        await api.client.get("/api/v1/exercises", auth=api.alice, params={"body_part": "  "})
+    ).json() == all_items
+    assert (
+        await api.client.get("/api/v1/exercises", auth=api.alice, params={"body_part": "a" * 101})
+    ).status_code == 422
+
+
+async def test_multiple_body_parts_match_any_without_duplicates_and_keep_visibility(training_api):
+    api = training_api
+    async with api.sessions.begin() as session:
+        await session.execute(
+            sa.update(exercise)
+            .where(exercise.c.id == api.catalogue[0])
+            .values(body_parts=["CHEST", "UPPER ARMS"])
+        )
+        await session.execute(
+            sa.update(exercise).where(exercise.c.id == api.private).values(body_parts=["CHEST"])
+        )
+    path = "/api/v1/exercises"
+    params = [
+        ("body_part", " chest "),
+        ("body_part", "UPPER ARMS"),
+        ("body_part", "CHEST"),
+        ("name", "catalogue"),
+        ("limit", "3"),
+        ("offset", "2"),
+    ]
+    result = await api.client.get(path, auth=api.alice, params=params)
+    assert result.status_code == 200
+    assert [row["id"] for row in result.json()["items"]] == api.catalogue[2:5]
+    all_matches = await api.client.get(
+        path, auth=api.alice, params=[("body_part", "CHEST"), ("body_part", "UPPER ARMS")]
+    )
+    assert [row["id"] for row in all_matches.json()["items"]] == api.catalogue
+    unknown = await api.client.get(
+        path, auth=api.alice, params=[("body_part", "missing"), ("body_part", "chest")]
+    )
+    assert [row["id"] for row in unknown.json()["items"]] == api.catalogue[::2]
+    invalid = await api.client.get(path, auth=api.alice, params=[("body_part", "CHEST")] * 31)
+    assert invalid.status_code == 422

@@ -16,9 +16,12 @@ from app.features.training.models import (
     training_session,
 )
 from app.features.training.schemas import (
+    BodyPartList,
     ExercisePage,
     ExerciseResponse,
     ExerciseSelection,
+    ExerciseSummary,
+    MuscleGroupList,
     PlannedSet,
     RoutineCreate,
     RoutineExerciseResponse,
@@ -56,24 +59,67 @@ def selectable_exercise(user_id: int) -> ColumnElement[bool]:
 
 
 async def list_exercises(
-    session: AsyncSession, user_id: int, limit: int, offset: int, muscle_group: str | None
+    session: AsyncSession,
+    user_id: int,
+    limit: int,
+    offset: int,
+    muscle_group: str | None,
+    name: str | None = None,
+    body_part: Sequence[str] | str | None = None,
 ) -> ExercisePage:
-    query = sa.select(exercise).where(selectable_exercise(user_id))
-    if muscle_group and muscle_group.strip():
-        muscle = sa.func.unnest(exercise.c.target_muscles).table_valued("value").render_derived()
-        query = query.where(
-            sa.exists(
-                sa.select(1)
-                .select_from(muscle)
-                .where(sa.func.lower(muscle.c.value) == muscle_group.strip().lower())
+    # Project only list-card data; instructions/media variants remain in detail.
+    query = sa.select(*(exercise.c[key] for key in ExerciseSummary.model_fields)).where(
+        selectable_exercise(user_id)
+    )
+    if name and name.strip():
+        query = query.where(exercise.c.name.icontains(name.strip(), autoescape=True))
+    parts = [body_part] if isinstance(body_part, str) else (body_part or [])
+    for column, values in (
+        (exercise.c.target_muscles, [muscle_group] if muscle_group else []),
+        (exercise.c.body_parts, parts),
+    ):
+        selected = sorted({value.strip().lower() for value in values if value.strip()})
+        if selected:
+            category = sa.func.unnest(column).table_valued("value").render_derived()
+            query = query.where(
+                sa.exists(
+                    sa.select(1)
+                    .select_from(category)
+                    .where(sa.func.lower(sa.func.trim(category.c.value)).in_(selected))
+                )
             )
-        )
     rows = (
         await session.execute(query.order_by(exercise.c.id).limit(limit).offset(offset))
     ).mappings()
     return ExercisePage(
-        items=[ExerciseResponse.model_validate(row) for row in rows], limit=limit, offset=offset
+        items=[ExerciseSummary.model_validate(row) for row in rows], limit=limit, offset=offset
     )
+
+
+async def _catalogue_options(session: AsyncSession, user_id: int, field: str) -> list[str]:
+    visible = (
+        sa.select(exercise.c[field].label("categories"))
+        .where(selectable_exercise(user_id))
+        .subquery()
+    )
+    category = sa.func.unnest(visible.c.categories).table_valued("value").render_derived()
+    label = sa.func.trim(category.c.value)
+    query = (
+        sa.select(label)
+        .select_from(visible.join(category, sa.true()))
+        .where(label != "")
+        .distinct()
+        .order_by(label)
+    )
+    return list(await session.scalars(query))
+
+
+async def list_muscle_groups(session: AsyncSession, user_id: int) -> MuscleGroupList:
+    return MuscleGroupList(items=await _catalogue_options(session, user_id, "target_muscles"))
+
+
+async def list_body_parts(session: AsyncSession, user_id: int) -> BodyPartList:
+    return BodyPartList(items=await _catalogue_options(session, user_id, "body_parts"))
 
 
 async def get_exercise(session: AsyncSession, user_id: int, exercise_id: int) -> ExerciseResponse:
@@ -94,16 +140,13 @@ async def get_exercise(session: AsyncSession, user_id: int, exercise_id: int) ->
 
 
 async def list_routines(
-    session: AsyncSession, user_id: int, limit: int, offset: int
+    session: AsyncSession, user_id: int, limit: int, offset: int, name: str | None = None
 ) -> RoutinePage:
+    query = sa.select(routine.c.id, routine.c.name).where(routine.c.user_id == user_id)
+    if name and name.strip():
+        query = query.where(routine.c.name.icontains(name.strip(), autoescape=True))
     rows = (
-        await session.execute(
-            sa.select(routine.c.id, routine.c.name)
-            .where(routine.c.user_id == user_id)
-            .order_by(routine.c.id)
-            .limit(limit)
-            .offset(offset)
-        )
+        await session.execute(query.order_by(routine.c.id).limit(limit).offset(offset))
     ).mappings()
     return RoutinePage(
         items=[RoutineSummary.model_validate(row) for row in rows], limit=limit, offset=offset
