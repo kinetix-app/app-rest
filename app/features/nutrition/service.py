@@ -2,7 +2,7 @@ from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.nutrition.models import food, nutrition_goal
-from app.features.nutrition.schemas import FoodCreate, FoodPatch
+from app.features.nutrition.schemas import FoodCreate, FoodPatch, NutritionGoalInput
 
 
 # Service functions for managing food items in the database
@@ -114,10 +114,36 @@ async def get_nutrition_goal(
     db: AsyncSession,
     user_id: int,
 ):
-    stmt = (
-        select(nutrition_goal)
-        .where(nutrition_goal.c.user_id == user_id)
-    )
+    stmt = select(nutrition_goal).where(nutrition_goal.c.user_id == user_id)
 
     result = await db.execute(stmt)
     return result.mappings().one_or_none()
+
+
+async def create_nutrition_goal(db: AsyncSession, user_id: int, data: NutritionGoalInput):
+    try:
+        result = await db.execute(
+            insert(nutrition_goal)
+            .values(user_id=user_id, **data.model_dump())
+            .returning(nutrition_goal)
+        )
+        await db.commit()
+        return result.mappings().one()
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def update_nutrition_goal(db: AsyncSession, user_id: int, data: NutritionGoalInput):
+    try:
+        result = await db.execute(
+            update(nutrition_goal)
+            .where(nutrition_goal.c.user_id == user_id)
+            .values(**data.model_dump())
+            .returning(nutrition_goal)
+        )
+        await db.commit()
+        return result.mappings().one_or_none()
+    except Exception:
+        await db.rollback()
+        raise

@@ -35,3 +35,10 @@ class NutritionGoalResponse(BaseModel):
     protein: Decimal
     carbohydrates: Decimal
     fats: Decimal
+
+
+class NutritionGoalInput(BaseModel):
+    calories: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
+    protein: Decimal = Field(ge=0, max_digits=8, decimal_places=2)
+    carbohydrates: Decimal = Field(ge=0, max_digits=8, decimal_places=2)
+    fats: Decimal = Field(ge=0, max_digits=8, decimal_places=2)

@@ -2,8 +2,22 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
-from app.features.nutrition.schemas import FoodCreate, FoodPatch, FoodResponse, NutritionGoalResponse
-from app.features.nutrition.service import create_food, delete_food, get_food, update_food, get_nutrition_goal
+from app.features.nutrition.schemas import (
+    FoodCreate,
+    FoodPatch,
+    FoodResponse,
+    NutritionGoalInput,
+    NutritionGoalResponse,
+)
+from app.features.nutrition.service import (
+    create_food,
+    create_nutrition_goal,
+    delete_food,
+    get_food,
+    get_nutrition_goal,
+    update_food,
+    update_nutrition_goal,
+)
 
 router = APIRouter(prefix="/foods", tags=["nutrition"])
 
@@ -26,6 +40,31 @@ async def read_nutrition_goal(
             detail="Nutrition goal not found",
         )
 
+    return goal
+
+
+@nutrition_goal_router.post(
+    "", response_model=NutritionGoalResponse, status_code=status.HTTP_201_CREATED
+)
+async def post_nutrition_goal(
+    data: NutritionGoalInput, user: CurrentUser, session: DatabaseSession
+) -> NutritionGoalResponse:
+    if await get_nutrition_goal(session, user.id) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Nutrition goal already exists"
+        )
+    return await create_nutrition_goal(session, user.id, data)
+
+
+@nutrition_goal_router.patch("/me", response_model=NutritionGoalResponse)
+async def patch_nutrition_goal(
+    data: NutritionGoalInput, user: CurrentUser, session: DatabaseSession
+) -> NutritionGoalResponse:
+    goal = await update_nutrition_goal(session, user.id, data)
+    if goal is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Nutrition goal not found"
+        )
     return goal
 
 
