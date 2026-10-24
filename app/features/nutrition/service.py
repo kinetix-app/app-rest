@@ -1,7 +1,7 @@
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.nutrition.models import food
+from app.features.nutrition.models import food, nutrition_goal
 from app.features.nutrition.schemas import FoodCreate, FoodPatch
 
 
@@ -108,3 +108,16 @@ async def update_food(
         raise
 
     return updated
+
+
+async def get_nutrition_goal(
+    db: AsyncSession,
+    user_id: int,
+):
+    stmt = (
+        select(nutrition_goal)
+        .where(nutrition_goal.c.user_id == user_id)
+    )
+
+    result = await db.execute(stmt)
+    return result.mappings().one_or_none()

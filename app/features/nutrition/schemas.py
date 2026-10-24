@@ -26,3 +26,12 @@ class FoodPatch(BaseModel):
     carbohydrates: Decimal | None = Field(default=None, ge=0, max_digits=8, decimal_places=2)
     fats: Decimal | None = Field(default=None, ge=0, max_digits=8, decimal_places=2)
     barcode: str | None = Field(default=None, max_length=50)
+
+
+class NutritionGoalResponse(BaseModel):
+    id: int
+    user_id: int
+    calories: Decimal
+    protein: Decimal
+    carbohydrates: Decimal
+    fats: Decimal
