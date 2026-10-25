@@ -76,7 +76,7 @@ nutrition_goal = sa.Table(
     "nutrition_goal",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False, unique=True),
     sa.Column("calories", sa.Numeric(8, 2), nullable=False),
     sa.Column("protein", sa.Numeric(8, 2), nullable=False),
     sa.Column("carbohydrates", sa.Numeric(8, 2), nullable=False),

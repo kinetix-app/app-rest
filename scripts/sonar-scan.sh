@@ -5,10 +5,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 if [[ -f .env ]]; then
-  set -a
   # shellcheck disable=SC1091
   . ./.env
-  set +a
 fi
 
 sonar_port="${SONAR_PORT:-9000}"

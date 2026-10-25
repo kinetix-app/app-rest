@@ -81,7 +81,7 @@ erDiagram
 
     nutrition_goal {
         bigint id PK "generated; required"
-        bigint user_id FK "required"
+        bigint user_id FK "required; unique"
         decimal calories "DECIMAL(8,2); required"
         decimal protein "DECIMAL(8,2); required"
         decimal carbohydrates "DECIMAL(8,2); required"
@@ -214,7 +214,7 @@ erDiagram
     meal ||..o{ meal_item : "meal"
     food o|..o{ meal_item : "food"
     recipe o|..o{ meal_item : "recipe"
-    users ||..o{ nutrition_goal : "user"
+    users ||..o| nutrition_goal : "user"
     users o|..o{ exercise : "user"
     users o|..o{ routine : "user"
     routine ||..o{ routine_exercise : "routine"

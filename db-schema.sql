@@ -112,7 +112,7 @@ CREATE TABLE meal_item (
 -- Chosen daily calorie and macronutrient targets.
 CREATE TABLE nutrition_goal (
     id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(id),
+    user_id BIGINT NOT NULL UNIQUE REFERENCES users(id),
     calories DECIMAL(8,2) NOT NULL,
     protein DECIMAL(8,2) NOT NULL,
     carbohydrates DECIMAL(8,2) NOT NULL,
