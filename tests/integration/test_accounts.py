@@ -318,3 +318,159 @@ async def test_mapping_failure_rolls_back_user_and_profile(
     async with app.state.session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(User)) == before
         assert await session.scalar(select(func.count()).select_from(Profile)) == profiles_before
+
+
+@pytest.mark.anyio
+async def test_onboarding_profile_objective_persistence_and_clearing(account_client, signed_token):
+    client, app, issuer = account_client
+    alice = headers(signed_token, issuer)
+    bob = headers(signed_token, issuer, sub="user_bob", sid="sess_bob")
+    first = await client.get("/api/v1/auth/me", headers=alice)
+    assert first.status_code == 200
+    assert first.json()["onboarding"] == {
+        "profile_complete": False,
+        "objective_selected": False,
+        "required": True,
+    }
+    assert (await client.get("/api/v1/me/objective", headers=alice)).json() == {"objective": None}
+    profile = {
+        "display_name": " Alice ",
+        "age": 30,
+        "height_cm": "170.25",
+        "weight_kg": "68.038855",
+        "picture_url": "",
+    }
+    partial = await client.patch("/api/v1/me/profile", headers=alice, json=profile)
+    assert partial.status_code == 200
+    assert partial.json()["profile"]["weight_unit"] is None
+    assert partial.json()["onboarding"]["profile_complete"] is False
+    complete = await client.patch("/api/v1/me/profile", headers=alice, json={"weight_unit": "lb"})
+    assert complete.json()["profile"]["weight_kg"] == "68.038855"
+    assert complete.json()["profile"]["display_name"] == "Alice"
+    assert complete.json()["profile"]["picture_url"] is None
+    assert complete.json()["onboarding"]["profile_complete"] is True
+    assert complete.json()["onboarding"]["required"] is True
+    for objective in ("build_muscle", "lose_fat", "gain_weight", "maintain_weight"):
+        response = await client.put(
+            "/api/v1/me/objective", headers=alice, json={"objective": objective}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"objective": objective}
+        assert (await client.get("/api/v1/auth/me", headers=alice)).json()["onboarding"] == {
+            "profile_complete": True,
+            "objective_selected": True,
+            "required": False,
+        }
+    other = await client.get("/api/v1/auth/me", headers=bob)
+    assert other.json()["profile"]["age"] is None
+    assert other.json()["onboarding"]["required"] is True
+    assert (await client.get("/api/v1/me/objective", headers=bob)).json() == {"objective": None}
+    restarted = create_app(app.state.settings)
+    async with LifespanManager(restarted):
+        restarted.state.clerk_verifier = app.state.clerk_verifier
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=restarted), base_url="http://test"
+        ) as fresh:
+            saved = await fresh.get("/api/v1/auth/me", headers=alice)
+            assert saved.json()["onboarding"]["required"] is False
+            assert saved.json()["profile"]["height_cm"] == "170.25"
+            assert (await fresh.get("/api/v1/me/objective", headers=alice)).json() == {
+                "objective": "maintain_weight"
+            }
+    cleared = await client.patch("/api/v1/me/profile", headers=alice, json={"weight_unit": None})
+    assert cleared.json()["onboarding"] == {
+        "profile_complete": False,
+        "objective_selected": True,
+        "required": True,
+    }
+    assert cleared.json()["profile"]["age"] == 30
+    assert (
+        await client.patch("/api/v1/me/profile", headers=alice, json={})
+    ).json() == cleared.json()
+
+
+@pytest.mark.anyio
+async def test_setup_rejects_invalid_fields_and_client_ownership(account_client, signed_token):
+    client, app, issuer = account_client
+    alice = headers(signed_token, issuer)
+    for changes in (
+        {"age": 0},
+        {"age": 121},
+        {"age": 30.5},
+        {"age": True},
+        {"height_cm": 0},
+        {"height_cm": 301},
+        {"height_cm": "170.251"},
+        {"weight_kg": 0},
+        {"weight_kg": 1001},
+        {"weight_kg": "1.0000001"},
+        {"weight_kg": "NaN"},
+        {"weight_unit": "stone"},
+        {"picture_url": "http://example.test/a.png"},
+        {"picture_url": "data:image/png;base64,a"},
+        {"picture_url": "https://user:secret@example.test/a.png"},
+        {"display_name": " "},
+        {"user_id": 123},
+    ):
+        assert (
+            await client.patch("/api/v1/me/profile", headers=alice, json=changes)
+        ).status_code == 422
+    for value in (
+        {},
+        {"objective": None},
+        {"objective": "bulk"},
+        {"objective": "lose_fat", "user_id": 1},
+    ):
+        assert (
+            await client.put("/api/v1/me/objective", headers=alice, json=value)
+        ).status_code == 422
+    good = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"picture_url": "https://example.test/avatar.png"}
+    )
+    assert good.status_code == 200
+    assert good.json()["profile"]["picture_url"] == "https://example.test/avatar.png"
+    assert (await client.get("/api/v1/auth/me")).status_code == 401
+    assert (await client.get("/api/v1/me/objective")).status_code == 401
+    user_id = good.json()["id"]
+    async with app.state.session_factory() as session:
+        await session.execute(update(User).where(User.id == user_id).values(status="blocked"))
+        await session.commit()
+    assert (
+        await client.put("/api/v1/me/objective", headers=alice, json={"objective": "lose_fat"})
+    ).status_code == 403
+
+
+@pytest.mark.anyio
+async def test_profile_and_objective_failures_roll_back(account_client, signed_token, monkeypatch):
+    from app.features.goals.models import AccountObjective
+
+    client, app, issuer = account_client
+    alice = headers(signed_token, issuer)
+    first = await client.get("/api/v1/auth/me", headers=alice)
+    user_id = first.json()["id"]
+    original = AsyncSession.commit
+
+    async def fail_setup_commit(session):
+        if any(
+            isinstance(row, (Profile, AccountObjective)) for row in [*session.new, *session.dirty]
+        ):
+            await session.flush()
+            raise RuntimeError("synthetic setup persistence failure")
+        # Profile service explicitly flushes before commit, so identify its transaction too.
+        profile = session.identity_map.get((Profile, (user_id,), None))
+        if profile is not None and profile.display_name == "Uncommitted":
+            raise RuntimeError("synthetic setup persistence failure")
+        await original(session)
+
+    monkeypatch.setattr(AsyncSession, "commit", fail_setup_commit)
+    with pytest.raises(RuntimeError, match="synthetic setup persistence failure"):
+        await client.put("/api/v1/me/objective", headers=alice, json={"objective": "build_muscle"})
+    with pytest.raises(RuntimeError, match="synthetic setup persistence failure"):
+        await client.patch(
+            "/api/v1/me/profile", headers=alice, json={"display_name": "Uncommitted"}
+        )
+    monkeypatch.setattr(AsyncSession, "commit", original)
+    assert (await client.get("/api/v1/me/objective", headers=alice)).json() == {"objective": None}
+    saved = await client.get("/api/v1/auth/me", headers=alice)
+    assert saved.json()["profile"]["display_name"] is None
+    assert saved.json()["onboarding"]["required"] is True

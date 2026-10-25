@@ -33,6 +33,20 @@ CREATE TABLE profiles (
     display_name VARCHAR(100),
     timezone VARCHAR(100),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    age INTEGER,
+    height_cm NUMERIC(5,2),
+    weight_kg NUMERIC(10,6),
+    -- Explicit preference; no default. Values: kg, lb.
+    weight_unit VARCHAR(2),
+    picture_url TEXT
+);
+
+-- Selected direction, independent of physical targets and optional nutrition targets.
+CREATE TABLE account_objective (
+    user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    -- Values: build_muscle, lose_fat, gain_weight, maintain_weight.
+    objective VARCHAR(30) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -116,7 +130,9 @@ CREATE TABLE nutrition_goal (
     calories DECIMAL(8,2) NOT NULL,
     protein DECIMAL(8,2) NOT NULL,
     carbohydrates DECIMAL(8,2) NOT NULL,
-    fats DECIMAL(8,2) NOT NULL
+    fats DECIMAL(8,2) NOT NULL,
+    -- Objective when this manual target was saved; null for legacy targets.
+    objective VARCHAR(50)
 );
 
 -- Shared exercise structure for manual entry and optional Ascend imports.

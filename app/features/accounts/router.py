@@ -5,9 +5,12 @@ from app.db.session import DatabaseSession
 from app.features.accounts.schemas import AccountResponse, ProfilePatch
 from app.features.accounts.service import AccountDenied, read_account, update_profile
 
+auth_router = APIRouter(prefix="/auth", tags=["accounts"])
+
 router = APIRouter(prefix="/me", tags=["accounts"])
 
 
+@auth_router.get("/me", responses={403: {"description": "Account access denied"}})
 @router.get("", responses={403: {"description": "Account access denied"}})
 async def get_me(user: CurrentUser, session: DatabaseSession) -> AccountResponse:
     try:

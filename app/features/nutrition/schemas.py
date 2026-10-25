@@ -2,7 +2,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.features.goals.schemas import Objective
 
 
 class FoodCreate(BaseModel):
@@ -53,6 +55,7 @@ class RecipeResponse(BaseModel):
 
 
 class NutritionGoalResponse(BaseModel):
+    objective: Objective | None
     id: int
     user_id: int
     calories: Decimal
@@ -62,6 +65,8 @@ class NutritionGoalResponse(BaseModel):
 
 
 class NutritionGoalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     calories: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
     protein: Decimal = Field(ge=0, max_digits=8, decimal_places=2)
     carbohydrates: Decimal = Field(ge=0, max_digits=8, decimal_places=2)

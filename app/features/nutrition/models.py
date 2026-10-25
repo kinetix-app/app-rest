@@ -77,6 +77,12 @@ nutrition_goal = sa.Table(
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
     sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False, unique=True),
+    sa.Column(
+        "objective",
+        sa.String(50),
+        nullable=True,
+        comment="Selected objective at explicit target save; null for legacy/unset context.",
+    ),
     sa.Column("calories", sa.Numeric(8, 2), nullable=False),
     sa.Column("protein", sa.Numeric(8, 2), nullable=False),
     sa.Column("carbohydrates", sa.Numeric(8, 2), nullable=False),

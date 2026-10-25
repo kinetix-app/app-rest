@@ -26,6 +26,11 @@ erDiagram
         bigint user_id PK,FK "required"
         varchar display_name "VARCHAR(100); nullable"
         varchar timezone "VARCHAR(100); nullable"
+        int age "nullable; years"
+        decimal height_cm "NUMERIC(5,2); nullable"
+        decimal weight_kg "NUMERIC(10,6); nullable; canonical kg"
+        varchar weight_unit "VARCHAR(2); nullable; explicitly kg/lb"
+        text picture_url "nullable; HTTPS"
         timestamptz created_at "required"
         timestamptz updated_at "required"
     }
@@ -79,9 +84,16 @@ erDiagram
         decimal servings "DECIMAL(8,2); nullable"
     }
 
+    account_objective {
+        bigint user_id PK,FK "required; one per account"
+        varchar objective "VARCHAR(30); build_muscle/lose_fat/gain_weight/maintain_weight"
+        timestamptz updated_at "required"
+    }
+
     nutrition_goal {
         bigint id PK "generated; required"
         bigint user_id FK "required; unique"
+        varchar objective "VARCHAR(50); nullable; context at explicit target save"
         decimal calories "DECIMAL(8,2); required"
         decimal protein "DECIMAL(8,2); required"
         decimal carbohydrates "DECIMAL(8,2); required"
@@ -205,6 +217,7 @@ erDiagram
 
     users ||..o{ auth_accounts : "user"
     users ||--o| profiles : "user"
+    users ||--o| account_objective : "user"
     users o|..o{ food : "user"
     users o|..o{ recipe : "user"
     recipe ||..o{ recipe_ingredient : "recipe"

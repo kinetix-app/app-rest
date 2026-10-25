@@ -27,3 +27,7 @@ class FoodInUseError(NutritionError):
 
 class RecipeInUseError(NutritionError):
     pass
+
+
+class NutritionGoalExistsError(NutritionError):
+    pass

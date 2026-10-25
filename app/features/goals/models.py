@@ -1,6 +1,9 @@
-"""Persistence metadata for the initial product schema; APIs are feature work."""
+"""Selected objectives and existing physical-goal/measurement persistence."""
+
+from datetime import datetime
 
 import sqlalchemy as sa
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
@@ -38,3 +41,20 @@ body_measurement = sa.Table(
     sa.Column("arm_cm", sa.Numeric(5, 2), nullable=True),
     sa.Column("thigh_cm", sa.Numeric(5, 2), nullable=True),
 )
+
+
+class AccountObjective(Base):
+    """Selected direction, independent of physical and optional nutrition targets."""
+
+    __tablename__ = "account_objective"
+
+    user_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    objective: Mapped[str] = mapped_column(
+        sa.String(30),
+        comment="Values: build_muscle, lose_fat, gain_weight, maintain_weight",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now()
+    )

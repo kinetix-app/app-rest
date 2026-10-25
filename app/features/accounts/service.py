@@ -4,7 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.types import VerifiedIdentity
 from app.features.accounts.models import AuthAccount, Profile, User
-from app.features.accounts.schemas import AccountResponse, ProfilePatch, ProfileResponse
+from app.features.accounts.schemas import (
+    AccountResponse,
+    OnboardingResponse,
+    ProfilePatch,
+    ProfileResponse,
+)
+from app.features.goals.models import AccountObjective
 
 
 class AccountDenied(Exception):
@@ -65,11 +71,25 @@ async def read_account(session: AsyncSession, user_id: int) -> AccountResponse:
     profile = await session.get(Profile, user_id)
     if profile is None:
         raise RuntimeError("Account profile is missing")
+    profile_complete = bool(
+        profile.display_name
+        and profile.display_name.strip()
+        and all(
+            getattr(profile, field) is not None
+            for field in ("age", "height_cm", "weight_kg", "weight_unit")
+        )
+    )
+    objective_selected = await session.get(AccountObjective, user_id) is not None
     return AccountResponse(
         id=user.id,
         status=user.status,
         created_at=user.created_at,
         profile=ProfileResponse.model_validate(profile),
+        onboarding=OnboardingResponse(
+            profile_complete=profile_complete,
+            objective_selected=objective_selected,
+            required=not (profile_complete and objective_selected),
+        ),
     )
 
 

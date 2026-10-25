@@ -270,3 +270,65 @@ async def test_nutrition_goal_is_single_per_user_and_can_be_updated(nutrition_ap
     assert (
         await api.client.post(path, auth=api.alice, json={**payload, "calories": 0})
     ).status_code == 422
+
+
+async def test_optional_target_and_objective_context_do_not_change_food_records(nutrition_api):
+    api = nutrition_api
+    goal_path = "/api/v1/nutrition-goals/me"
+    assert (await api.client.get(goal_path, auth=api.alice)).status_code == 404
+    oats = await create_food(api)
+    item = await api.client.post(
+        "/api/v1/nutrition/meal-items",
+        auth=api.alice,
+        json={
+            "date": "2026-10-25",
+            "meal_type": "breakfast",
+            "food_id": oats["id"],
+            "quantity_grams": "50",
+        },
+    )
+    assert item.status_code == 201
+    before = await api.client.get("/api/v1/nutrition/days/2026-10-25", auth=api.alice)
+    assert decimal(before.json()["calories"]) == Decimal("185")
+    assert (await api.client.get("/api/v1/auth/me", auth=api.alice)).json()["onboarding"][
+        "required"
+    ]
+    objective_path = "/api/v1/me/objective"
+    assert (
+        await api.client.put(objective_path, auth=api.alice, json={"objective": "build_muscle"})
+    ).status_code == 200
+    amounts = {"calories": "2400.15", "protein": "150.12", "carbohydrates": "250.25", "fats": "0"}
+    created = await api.client.post("/api/v1/nutrition-goals", auth=api.alice, json=amounts)
+    assert created.status_code == 201
+    assert created.json()["objective"] == "build_muscle"
+    assert (await api.client.get(goal_path, auth=api.bob)).status_code == 404
+    assert (
+        await api.client.put(objective_path, auth=api.alice, json={"objective": "lose_fat"})
+    ).status_code == 200
+    retained = await api.client.get(goal_path, auth=api.alice)
+    assert retained.json() == created.json()
+    assert (
+        await api.client.get("/api/v1/nutrition/days/2026-10-25", auth=api.alice)
+    ).json() == before.json()
+    updated = await api.client.patch(goal_path, auth=api.alice, json=amounts)
+    assert updated.status_code == 200
+    assert updated.json()["objective"] == "lose_fat"
+    assert decimal(updated.json()["fats"]) == 0
+    assert decimal(updated.json()["protein"]) == Decimal("150.12")
+    invalid = await api.client.patch(goal_path, auth=api.alice, json={**amounts, "user_id": 123})
+    assert invalid.status_code == 422
+    assert (await api.client.get(goal_path, auth=api.alice)).json() == updated.json()
+
+
+async def test_concurrent_nutrition_goal_creation_is_conflict_not_server_error(nutrition_api):
+    import asyncio
+
+    api = nutrition_api
+    amounts = {"calories": "2000", "protein": "100", "carbohydrates": "200", "fats": "60"}
+    responses = await asyncio.gather(
+        *[
+            api.client.post("/api/v1/nutrition-goals", auth=api.alice, json=amounts)
+            for _ in range(2)
+        ]
+    )
+    assert sorted(response.status_code for response in responses) == [201, 409]

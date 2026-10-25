@@ -13,6 +13,16 @@ The review below records remaining product decisions and historical schema asses
 
 The draft is a useful starting point for Sprint 1, but does **not yet meet all its requirements**. Its routine/session/set separation and food/meal/day structure fit the selected journeys. Goal semantics, business validation and history behavior still need detailing before feature implementation. The exercise catalogue now has explicit, reusable fields based on Ascend, supporting manual entry and optional imports. The initial migrations now implement persistence; no import service or consuming feature APIs are implemented.
 
+## Onboarding scope reconciliation — 25 October 2026
+
+The latest owner-confirmed increment separates selected objective (`account_objective`) from
+profile inputs and optional calorie/macronutrient targets. A complete profile and objective
+complete onboarding; no numerical target gates food records. Nutrition targets retain an
+explicit-save objective snapshot, with unknown context for legacy targets. Physical targets
+and milestones are excluded; weekly-session scope remains unconfirmed and is not assumed.
+The old Sprint 1 wording below is historical. See [the runtime contract](onboarding.md) and
+[the authorized scientific-suggestions follow-up](https://github.com/kinetix-app/app/issues/74).
+
 ## Confirmed design direction
 
 - Use `BIGSERIAL PRIMARY KEY` for every independently generated local entity ID, including `users.id` and `auth_accounts.id`. All references use `BIGINT` without a sequence/default of their own. `profiles.user_id` is a shared `BIGINT` primary/foreign key: a profile reuses its user ID. Every table therefore has the same underlying PostgreSQL BIGINT key type. Provider IDs and Clerk issuer/subject values remain text because they are external identifiers.

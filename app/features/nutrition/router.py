@@ -9,6 +9,7 @@ from app.features.nutrition.errors import (
     FoodInUseError,
     FoodNotFoundError,
     MealItemNotFoundError,
+    NutritionGoalExistsError,
     NutritionGoalNotFoundError,
     RecipeInUseError,
     RecipeNotFoundError,
@@ -73,11 +74,10 @@ async def read_nutrition_goal(
 async def post_nutrition_goal(
     data: NutritionGoalInput, user: CurrentUser, session: DatabaseSession
 ) -> NutritionGoalResponse:
-    if await get_nutrition_goal(session, user.id) is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Nutrition goal already exists"
-        )
-    return await create_nutrition_goal(session, user.id, data)
+    try:
+        return await create_nutrition_goal(session, user.id, data)
+    except NutritionGoalExistsError:
+        raise HTTPException(409, "Nutrition goal already exists") from None
 
 
 @nutrition_goal_router.patch("/me")
