@@ -6,17 +6,17 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.features.training.errors import InvalidSelection, TrainingNotFound
+from app.features.training.history import last_configurations
 from app.features.training.models import (
     exercise,
-    exercise_set,
     routine,
     routine_exercise,
     routine_exercise_set,
-    session_exercise,
-    training_session,
 )
 from app.features.training.schemas import (
     BodyPartList,
+    ExerciseConfiguration,
     ExercisePage,
     ExerciseResponse,
     ExerciseSelection,
@@ -29,16 +29,11 @@ from app.features.training.schemas import (
     RoutinePatch,
     RoutineResponse,
     RoutineSummary,
+    SessionResponse,
     SetResponse,
+    WeightResponse,
 )
-
-
-class TrainingNotFound(Exception):
-    """Missing or inaccessible resource."""
-
-
-class InvalidSelection(Exception):
-    """An exercise or template slot is unavailable for this routine."""
+from app.features.training.units import WeightUnit, display_weight
 
 
 def selectable_exercise(user_id: int) -> ColumnElement[bool]:
@@ -153,7 +148,9 @@ async def list_routines(
     )
 
 
-async def get_routine(session: AsyncSession, user_id: int, routine_id: int) -> RoutineResponse:
+async def get_routine(
+    session: AsyncSession, user_id: int, routine_id: int, weight_unit: WeightUnit = "kg"
+) -> RoutineResponse:
     # Keep the template consistent across the batched reads while updates lock its parent.
     owner_row = (
         (
@@ -201,44 +198,10 @@ async def get_routine(session: AsyncSession, user_id: int, routine_id: int) -> R
             .order_by(routine_exercise_set.c.set_number, routine_exercise_set.c.id)
         )
     ).mappings():
-        defaults.setdefault(row["routine_exercise_id"], []).append(SetResponse.model_validate(row))
-    latest = await session.scalar(
-        sa.select(training_session.c.id)
-        .where(
-            training_session.c.user_id == user_id,
-            training_session.c.routine_id == routine_id,
-            training_session.c.ended_at.is_not(None),
-        )
-        .order_by(training_session.c.ended_at.desc(), training_session.c.id.desc())
-        .limit(1)
+        defaults.setdefault(row["routine_exercise_id"], []).append(_present_set(row, weight_unit))
+    previous = await last_configurations(
+        session, user_id, [slot["exercise_id"] for slot in slots], weight_unit
     )
-    previous: dict[tuple[int, int], list[SetResponse]] = {}
-    if latest is not None:
-        # Mark matching entries even when they have zero sets; do not merge older workouts.
-        entries = (
-            (
-                await session.execute(
-                    sa.select(session_exercise).where(
-                        session_exercise.c.session_id == latest,
-                        session_exercise.c.routine_exercise_id.in_(ids),
-                    )
-                )
-            )
-            .mappings()
-            .all()
-        )
-        keys = {
-            entry["id"]: (entry["routine_exercise_id"], entry["exercise_id"]) for entry in entries
-        }
-        previous = {key: [] for key in keys.values()}
-        for row in (
-            await session.execute(
-                sa.select(exercise_set)
-                .where(exercise_set.c.session_exercise_id.in_(keys))
-                .order_by(exercise_set.c.set_number, exercise_set.c.id)
-            )
-        ).mappings():
-            previous[keys[row["session_exercise_id"]]].append(SetResponse.model_validate(row))
     return RoutineResponse(
         id=owner_row["id"],
         name=owner_row["name"],
@@ -249,10 +212,8 @@ async def get_routine(session: AsyncSession, user_id: int, routine_id: int) -> R
                 exercise=exercises[slot["exercise_id"]],
                 notes=slot["notes"],
                 default_sets=defaults.get(slot["id"], []),
-                sets=previous.get((slot["id"], slot["exercise_id"]), defaults.get(slot["id"], [])),
-                sets_source="latest_session"
-                if (slot["id"], slot["exercise_id"]) in previous
-                else "routine",
+                sets=previous.get(slot["exercise_id"], defaults.get(slot["id"], [])),
+                sets_source="latest_session" if slot["exercise_id"] in previous else "routine",
             )
             for slot in slots
         ],
@@ -275,7 +236,7 @@ async def validate_exercises(
 
 
 async def create_routine(
-    session: AsyncSession, user_id: int, data: RoutineCreate
+    session: AsyncSession, user_id: int, data: RoutineCreate, weight_unit: WeightUnit = "kg"
 ) -> RoutineResponse:
     try:
         await validate_exercises(session, user_id, data.exercises)
@@ -291,7 +252,7 @@ async def create_routine(
                 .returning(routine_exercise.c.id)
             )
             await replace_sets(session, slot_id, item.sets or [])
-        response = await get_routine(session, user_id, routine_id)
+        response = await get_routine(session, user_id, routine_id, weight_unit)
         await session.commit()
         return response
     except Exception:
@@ -300,7 +261,11 @@ async def create_routine(
 
 
 async def update_routine(
-    session: AsyncSession, user_id: int, routine_id: int, data: RoutinePatch
+    session: AsyncSession,
+    user_id: int,
+    routine_id: int,
+    data: RoutinePatch,
+    weight_unit: WeightUnit = "kg",
 ) -> RoutineResponse:
     try:
         found = await session.scalar(
@@ -326,7 +291,7 @@ async def update_routine(
             if not retained.issubset(existing):
                 raise InvalidSelection
             removed = existing.keys() - retained
-            # Delete defaults before their parent; historical links use ON DELETE SET NULL.
+            # Template rows are independent of performed exercise history.
             await session.execute(
                 sa.delete(routine_exercise_set).where(
                     routine_exercise_set.c.routine_exercise_id.in_(removed)
@@ -362,7 +327,7 @@ async def update_routine(
             await session.execute(
                 sa.update(routine).where(routine.c.id == routine_id).values(name=data.name)
             )
-        response = await get_routine(session, user_id, routine_id)
+        response = await get_routine(session, user_id, routine_id, weight_unit)
         await session.commit()
         return response
     except Exception:
@@ -382,8 +347,69 @@ async def replace_sets(session: AsyncSession, slot_id: int, sets: Sequence[Plann
                     "routine_exercise_id": slot_id,
                     "set_number": number,
                     "reps": item.reps,
-                    "weight_kg": item.weight_kg,
+                    "weight_kg": item.canonical_kg(),
                 }
                 for number, item in enumerate(sets, 1)
             ],
         )
+
+
+def _present_set(row, unit: WeightUnit) -> SetResponse:
+    value = SetResponse.model_validate(row)
+    if value.weight_kg is not None:
+        value.weight = WeightResponse(value=display_weight(value.weight_kg, unit), unit=unit)
+    return value
+
+
+async def get_last_configuration(
+    session: AsyncSession, user_id: int, exercise_id: int, unit: WeightUnit = "kg"
+) -> ExerciseConfiguration:
+    await get_exercise(session, user_id, exercise_id)
+    values = await last_configurations(session, user_id, [exercise_id], unit)
+    return ExerciseConfiguration(exercise_id=exercise_id, sets=values.get(exercise_id, []))
+
+
+async def replace_routine_from_session(
+    session: AsyncSession, user_id: int, completed: SessionResponse
+) -> None:
+    if completed.routine_id is None or not completed.exercises:
+        raise InvalidSelection
+    found = await session.scalar(
+        sa.select(routine.c.id)
+        .where(routine.c.id == completed.routine_id, routine.c.user_id == user_id)
+        .with_for_update()
+    )
+    if found is None:
+        raise InvalidSelection
+    slots = sa.select(routine_exercise.c.id).where(
+        routine_exercise.c.routine_id == completed.routine_id
+    )
+    await session.execute(
+        routine_exercise_set.delete().where(routine_exercise_set.c.routine_exercise_id.in_(slots))
+    )
+    await session.execute(
+        routine_exercise.delete().where(routine_exercise.c.routine_id == completed.routine_id)
+    )
+    for position, item in enumerate(completed.exercises, 1):
+        slot_id = await session.scalar(
+            routine_exercise.insert()
+            .values(
+                routine_id=completed.routine_id,
+                exercise_id=item.exercise.id,
+                exercise_order=position,
+            )
+            .returning(routine_exercise.c.id)
+        )
+        if item.sets:
+            await session.execute(
+                routine_exercise_set.insert(),
+                [
+                    {
+                        "routine_exercise_id": slot_id,
+                        "set_number": number,
+                        "reps": value.reps,
+                        "weight_kg": value.weight_kg,
+                    }
+                    for number, value in enumerate(item.sets, 1)
+                ],
+            )

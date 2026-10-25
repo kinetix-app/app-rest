@@ -178,7 +178,7 @@ CREATE TABLE routine_exercise (
     notes TEXT
 );
 
--- Saved defaults for the first workout, or routine slots absent from the previous workout.
+-- Saved defaults for catalogue exercises without recorded account history.
 -- Same numbered measurements as exercise_set; completion belongs only to performed sets.
 -- The number of sets is the child-row count, not an aggregate sets column.
 CREATE TABLE routine_exercise_set (
@@ -186,45 +186,46 @@ CREATE TABLE routine_exercise_set (
     routine_exercise_id BIGINT NOT NULL REFERENCES routine_exercise(id),
     set_number INTEGER NOT NULL,
     reps INTEGER,
-    weight_kg DECIMAL(8,2),
+    weight_kg DECIMAL(12,6),
     duration_seconds INTEGER,
     distance_km DECIMAL(8,2)
 );
 
--- Performed training, optionally started from a routine.
+-- Performed training, optionally started locally from a routine.
+-- Start/tick persist a separate snapshot; Finish inserts confirmed results atomically.
 CREATE TABLE training_session (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
     routine_id BIGINT REFERENCES routine(id),
     -- Values: gym, running, cycling, walking. Sprint 1 uses gym.
     activity_type VARCHAR(30) NOT NULL,
-    started_at TIMESTAMP NOT NULL,
-    ended_at TIMESTAMP,
-    notes TEXT
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    ended_at TIMESTAMP WITH TIME ZONE,
+    notes TEXT,
+    client_session_id UUID,
+    payload_fingerprint VARCHAR(64),
+    UNIQUE (user_id, client_session_id)
 );
 
 -- Exercises actually recorded in a session, independent of template edits.
 CREATE TABLE session_exercise (
     id BIGSERIAL PRIMARY KEY,
     session_id BIGINT NOT NULL REFERENCES training_session(id),
-    -- Stable template slot for matching previous results, even after reordering.
-    -- Keep historical exercise/results if the template slot is removed.
-    routine_exercise_id BIGINT REFERENCES routine_exercise(id) ON DELETE SET NULL,
     exercise_id BIGINT NOT NULL REFERENCES exercise(id),
     exercise_order INTEGER NOT NULL,
     notes TEXT
 );
 
 -- Actual set results, separate from saved routine defaults.
--- On routine load, use the owner's latest completed session for this routine.
--- Copy its matching set measurements into NEW session rows; reset completed to FALSE.
--- Use saved routine sets when no matching previous result exists; never reuse history rows.
+-- Routine reads provide the owner's latest matching completed results as guidance,
+-- falling back to saved defaults. Guidance is never an invented performed result.
+-- Only explicitly recorded actual sets are inserted at Finish; never reuse history rows.
 CREATE TABLE exercise_set (
     id BIGSERIAL PRIMARY KEY,
     session_exercise_id BIGINT NOT NULL REFERENCES session_exercise(id),
     set_number INTEGER NOT NULL,
     reps INTEGER,
-    weight_kg DECIMAL(8,2),
+    weight_kg DECIMAL(12,6),
     duration_seconds INTEGER,
     distance_km DECIMAL(8,2),
     completed BOOLEAN NOT NULL DEFAULT FALSE
@@ -261,3 +262,16 @@ CREATE TABLE body_measurement (
 -- Imported global catalogue identities; manual and user-owned exercises are independent.
 CREATE UNIQUE INDEX ix_exercise_catalogue_source_external_id ON exercise (source, external_id)
 WHERE user_id IS NULL AND external_id IS NOT NULL AND source <> 'manual';
+
+-- Resumable snapshots are private and separate from immutable completed history.
+CREATE TABLE session_draft (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    client_session_id UUID NOT NULL,
+    snapshot JSONB NOT NULL,
+    completed_session_id BIGINT REFERENCES training_session(id),
+    finish_update_routine BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (user_id, client_session_id)
+);
+CREATE UNIQUE INDEX ix_session_draft_active_user ON session_draft (user_id)
+    WHERE completed_session_id IS NULL;

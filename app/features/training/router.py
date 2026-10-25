@@ -1,15 +1,21 @@
 """Routine editing and exercise selection endpoints."""
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Path, Query, Response
 from pydantic import StringConstraints
 
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
-from app.features.training import service
+from app.features.training import drafts, service, sessions
+from app.features.training.errors import IdempotencyConflict, InvalidSelection, TrainingNotFound
 from app.features.training.schemas import (
     BodyPartList,
+    DraftFinish,
+    DraftResponse,
+    DraftSnapshot,
+    ExerciseConfiguration,
     ExercisePage,
     ExerciseResponse,
     MuscleGroupList,
@@ -17,7 +23,11 @@ from app.features.training.schemas import (
     RoutinePage,
     RoutinePatch,
     RoutineResponse,
+    SessionCreate,
+    SessionPage,
+    SessionResponse,
 )
+from app.features.training.units import WeightUnit
 
 router = APIRouter(tags=["training"])
 ResourceId = Annotated[int, Path(gt=0, le=2**63 - 1)]
@@ -57,7 +67,7 @@ async def get_exercise(
 ) -> ExerciseResponse:
     try:
         return await service.get_exercise(session, user.id, exercise_id)
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Exercise not found") from None
 
 
@@ -74,33 +84,147 @@ async def get_routines(
 
 @router.get("/routines/{routine_id}", responses={404: {"description": "Routine not found"}})
 async def get_routine(
-    routine_id: ResourceId, user: CurrentUser, session: DatabaseSession
+    routine_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    weight_unit: WeightUnit = "kg",
 ) -> RoutineResponse:
     try:
-        return await service.get_routine(session, user.id, routine_id)
-    except service.TrainingNotFound:
+        return await service.get_routine(session, user.id, routine_id, weight_unit)
+    except TrainingNotFound:
         raise HTTPException(404, "Routine not found") from None
 
 
 @router.post("/routines", status_code=201)
 async def post_routine(
-    data: RoutineCreate, user: CurrentUser, session: DatabaseSession
+    data: RoutineCreate, user: CurrentUser, session: DatabaseSession, weight_unit: WeightUnit = "kg"
 ) -> RoutineResponse:
     try:
-        return await service.create_routine(session, user.id, data)
-    except service.InvalidSelection:
+        return await service.create_routine(session, user.id, data, weight_unit)
+    except InvalidSelection:
         raise HTTPException(422, "Exercise selection is unavailable") from None
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Routine not found") from None
 
 
 @router.patch("/routines/{routine_id}", responses={404: {"description": "Routine not found"}})
 async def patch_routine(
-    routine_id: ResourceId, data: RoutinePatch, user: CurrentUser, session: DatabaseSession
+    routine_id: ResourceId,
+    data: RoutinePatch,
+    user: CurrentUser,
+    session: DatabaseSession,
+    weight_unit: WeightUnit = "kg",
 ) -> RoutineResponse:
     try:
-        return await service.update_routine(session, user.id, routine_id, data)
-    except service.TrainingNotFound:
+        return await service.update_routine(session, user.id, routine_id, data, weight_unit)
+    except TrainingNotFound:
         raise HTTPException(404, "Routine not found") from None
-    except service.InvalidSelection:
+    except InvalidSelection:
         raise HTTPException(422, "Exercise or routine slot selection is unavailable") from None
+
+
+@router.post("/sessions", status_code=201)
+async def post_session(
+    data: SessionCreate,
+    user: CurrentUser,
+    session: DatabaseSession,
+    response: Response,
+    weight_unit: WeightUnit = "kg",
+) -> SessionResponse:
+    try:
+        result, created = await sessions.create_session(session, user.id, data, weight_unit)
+        response.status_code = 201 if created else 200
+        return result
+    except IdempotencyConflict:
+        raise HTTPException(
+            409, "Client session ID already has different workout content"
+        ) from None
+    except InvalidSelection:
+        raise HTTPException(422, "Exercise or routine source selection is unavailable") from None
+
+
+@router.get("/sessions")
+async def get_sessions(
+    user: CurrentUser,
+    session: DatabaseSession,
+    limit: Limit = 50,
+    offset: Offset = 0,
+    weight_unit: WeightUnit = "kg",
+) -> SessionPage:
+    return await sessions.list_sessions(session, user.id, limit, offset, weight_unit)
+
+
+@router.get("/sessions/{session_id}", responses={404: {"description": "Session not found"}})
+async def get_session(
+    session_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    weight_unit: WeightUnit = "kg",
+) -> SessionResponse:
+    try:
+        return await sessions.get_session(session, user.id, session_id, weight_unit)
+    except TrainingNotFound:
+        raise HTTPException(404, "Session not found") from None
+
+
+@router.get("/session-drafts")
+async def get_draft(user: CurrentUser, session: DatabaseSession) -> DraftResponse | None:
+    return await drafts.latest_draft(session, user.id)
+
+
+@router.put("/session-drafts/{client_session_id}")
+async def put_draft(
+    client_session_id: UUID, data: DraftSnapshot, user: CurrentUser, session: DatabaseSession
+) -> DraftResponse:
+    try:
+        return await drafts.save_draft(session, user.id, client_session_id, data)
+    except IdempotencyConflict:
+        raise HTTPException(409, "Draft conflicts with an active or completed workout") from None
+    except InvalidSelection:
+        raise HTTPException(422, "Exercise or routine source selection is unavailable") from None
+
+
+@router.delete("/session-drafts/{client_session_id}", status_code=204)
+async def delete_draft(
+    client_session_id: UUID, user: CurrentUser, session: DatabaseSession
+) -> Response:
+    try:
+        await drafts.discard_draft(session, user.id, client_session_id)
+        return Response(status_code=204)
+    except IdempotencyConflict:
+        raise HTTPException(409, "Completed workouts cannot be discarded") from None
+
+
+@router.post("/session-drafts/{client_session_id}/finish")
+async def finish_draft(
+    client_session_id: UUID,
+    data: DraftFinish,
+    user: CurrentUser,
+    session: DatabaseSession,
+    weight_unit: WeightUnit = "kg",
+) -> SessionResponse:
+    try:
+        return await drafts.finish_draft(session, user.id, client_session_id, data, weight_unit)
+    except IdempotencyConflict:
+        raise HTTPException(
+            409, "Workout already finished with a different time or routine update decision"
+        ) from None
+    except TrainingNotFound:
+        raise HTTPException(404, "Draft not found") from None
+    except InvalidSelection:
+        raise HTTPException(
+            422, "Provide a valid finish time and available routine/exercise sources"
+        ) from None
+
+
+@router.get("/exercises/{exercise_id}/last-configuration")
+async def get_last_configuration(
+    exercise_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    weight_unit: WeightUnit = "kg",
+) -> ExerciseConfiguration:
+    try:
+        return await service.get_last_configuration(session, user.id, exercise_id, weight_unit)
+    except TrainingNotFound:
+        raise HTTPException(404, "Exercise not found") from None

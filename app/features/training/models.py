@@ -101,7 +101,7 @@ routine_exercise_set = sa.Table(
     ),
     sa.Column("set_number", sa.Integer(), nullable=False),
     sa.Column("reps", sa.Integer(), nullable=True),
-    sa.Column("weight_kg", sa.Numeric(8, 2), nullable=True),
+    sa.Column("weight_kg", sa.Numeric(12, 6), nullable=True),
     sa.Column("duration_seconds", sa.Integer(), nullable=True),
     sa.Column("distance_km", sa.Numeric(8, 2), nullable=True),
 )
@@ -118,9 +118,12 @@ training_session = sa.Table(
         nullable=False,
         comment="Values: gym, running, cycling, walking. Sprint 1 uses gym.",
     ),
-    sa.Column("started_at", sa.DateTime(), nullable=False),
-    sa.Column("ended_at", sa.DateTime(), nullable=True),
+    sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
     sa.Column("notes", sa.Text(), nullable=True),
+    sa.Column("client_session_id", postgresql.UUID(as_uuid=True), nullable=True),
+    sa.Column("payload_fingerprint", sa.String(64), nullable=True),
+    sa.UniqueConstraint("user_id", "client_session_id"),
 )
 
 session_exercise = sa.Table(
@@ -128,17 +131,6 @@ session_exercise = sa.Table(
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
     sa.Column("session_id", sa.BigInteger(), sa.ForeignKey("training_session.id"), nullable=False),
-    sa.Column(
-        "routine_exercise_id",
-        sa.BigInteger(),
-        sa.ForeignKey("routine_exercise.id", ondelete="SET NULL"),
-        nullable=True,
-        comment=(
-            "Stable template slot for matching previous results, even after "
-            "reordering. Keep historical exercise/results if the template slot"
-            " is removed."
-        ),
-    ),
     sa.Column("exercise_id", sa.BigInteger(), sa.ForeignKey("exercise.id"), nullable=False),
     sa.Column("exercise_order", sa.Integer(), nullable=False),
     sa.Column("notes", sa.Text(), nullable=True),
@@ -153,8 +145,29 @@ exercise_set = sa.Table(
     ),
     sa.Column("set_number", sa.Integer(), nullable=False),
     sa.Column("reps", sa.Integer(), nullable=True),
-    sa.Column("weight_kg", sa.Numeric(8, 2), nullable=True),
+    sa.Column("weight_kg", sa.Numeric(12, 6), nullable=True),
     sa.Column("duration_seconds", sa.Integer(), nullable=True),
     sa.Column("distance_km", sa.Numeric(8, 2), nullable=True),
     sa.Column("completed", sa.Boolean(), nullable=False, server_default=sa.text("FALSE")),
+)
+
+# Snapshots keep unconfirmed form values separate from completed workout history.
+session_draft = sa.Table(
+    "session_draft",
+    Base.metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("client_session_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("snapshot", postgresql.JSONB(), nullable=False),
+    sa.Column("completed_session_id", sa.BigInteger(), sa.ForeignKey("training_session.id")),
+    sa.Column(
+        "finish_update_routine", sa.Boolean(), nullable=False, server_default=sa.text("FALSE")
+    ),
+    sa.UniqueConstraint("user_id", "client_session_id"),
+)
+sa.Index(
+    "ix_session_draft_active_user",
+    session_draft.c.user_id,
+    unique=True,
+    postgresql_where=sa.text("completed_session_id IS NULL"),
 )
