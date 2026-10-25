@@ -17,6 +17,7 @@ from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.core.storage.azure import BlobStorage
 from app.db.session import create_database_engine
+from app.features.accounts.upload_limit import ProfileUploadLimit
 
 logger = logging.getLogger("kinetix.requests")
 
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await engine.dispose()
 
     application = FastAPI(title="Kinetix API", version="0.1.0", lifespan=lifespan)
+    application.add_middleware(ProfileUploadLimit)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=configuration.cors_allowed_origins,

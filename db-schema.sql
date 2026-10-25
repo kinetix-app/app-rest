@@ -39,7 +39,9 @@ CREATE TABLE profiles (
     weight_kg NUMERIC(10,6),
     -- Explicit preference; no default. Values: kg, lb.
     weight_unit VARCHAR(2),
-    picture_url TEXT
+    -- Private delivery endpoint or legacy HTTPS URL; blob reference never exposed.
+    picture_url TEXT,
+    picture_blob_name TEXT
 );
 
 -- Selected direction, independent of physical targets and optional nutrition targets.

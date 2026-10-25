@@ -19,9 +19,31 @@ six places using round-half-up. The server stores the supplied canonical mass wi
 inferring it from the preference. Clearing a required field makes setup required again.
 These bounds validate representation; they are not health recommendations.
 
-`picture_url` accepts an HTTPS URL without embedded credentials, or null/empty to clear.
-It stores a reference only; no upload or remote image retrieval occurs. No sex, activity
-level, date of birth or additional health field is collected for automatic calculations.
+`POST /api/v1/me/profile/picture` accepts an authenticated multipart request with one
+`file` (JPEG, PNG or WebP, maximum 5 MiB and 16 million pixels). Actual decoded format
+must match its declared type. The server applies orientation, reduces images to at most
+1024 pixels per side, strips metadata and saves JPEG in the separate private Azure
+container configured by `AZURE_STORAGE_PROFILE_CONTAINER` (default `profile-pictures`).
+The entire multipart request is bounded to 5 MiB plus 64 KiB framing. Unsupported types
+return 415, oversized files 413, invalid images 422, unavailable storage 503. Upload
+returns `AccountResponse` with `picture_url: "/api/v1/me/profile/picture"`; storage names
+and credentials are never returned. `GET` at that authenticated owned endpoint returns
+JPEG with `Cache-Control: private, no-store`, or 404 when no upload exists. `DELETE`
+clears an uploaded or legacy photo idempotently and returns `AccountResponse` (200).
+
+The private container remains private even with exercise public-read mode enabled;
+an existing public profile container is rejected. Upload/read/deletion occur outside
+database transactions. Replacement commits its new reference under an account lock;
+failed persistence removes the new upload, and committed replacement/deletion attempts
+best-effort cleanup of the previous blob. Cleanup failures can leave unreferenced blobs.
+`picture_url` PATCH still accepts legacy HTTPS URLs without credentials or null/empty
+to clear, and clears any previous upload reference. Omitted picture fields preserve
+uploads. No remote image retrieval occurs. No sex, activity level, date of birth or
+additional health field is collected for automatic calculations.
+
+Revision `20261025_05` adds the nullable hidden `picture_blob_name`; it preserves existing
+profile fields and legacy URLs. Downgrade clears uploaded endpoint URLs and loses their
+references, but preserves legacy HTTPS references; it does not delete Azure objects.
 
 `GET /api/v1/me/objective` returns `{ "objective": null }` when none is selected.
 `PUT` accepts exactly one `objective`: `build_muscle`, `lose_fat`, `gain_weight` or

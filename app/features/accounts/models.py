@@ -54,6 +54,7 @@ class Profile(Base):
     weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     weight_unit: Mapped[str | None] = mapped_column(String(2), comment="Values: kg, lb")
     picture_url: Mapped[str | None] = mapped_column(Text)
+    picture_blob_name: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     azure_storage_container: str = Field(
         default="exercises", pattern=r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
     )
+    azure_storage_profile_container: str = Field(
+        default="profile-pictures", pattern=r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
+    )
     azure_storage_media_base_url: str | None = None
     azure_storage_local_public_read: bool = False
     azure_storage_timeout_seconds: float = Field(default=30, gt=0, le=120)
@@ -125,7 +128,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Azure storage requires account name, account URL, key and media base URL"
             )
-        if "--" in self.azure_storage_container:
+        if self.azure_storage_profile_container == self.azure_storage_container:
+            raise ValueError("Profile and exercise containers must be different")
+        if any(
+            "--" in name
+            for name in (self.azure_storage_container, self.azure_storage_profile_container)
+        ):
             raise ValueError("Azure container names cannot contain consecutive hyphens")
         for value in (self.azure_storage_account_url, self.azure_storage_media_base_url):
             if value is None:

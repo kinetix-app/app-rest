@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.types import VerifiedIdentity
+from app.core.storage.azure import BlobStorage
 from app.features.accounts.models import AuthAccount, Profile, User
 from app.features.accounts.schemas import (
     AccountResponse,
@@ -94,7 +95,7 @@ async def read_account(session: AsyncSession, user_id: int) -> AccountResponse:
 
 
 async def update_profile(
-    session: AsyncSession, user_id: int, changes: ProfilePatch
+    session: AsyncSession, user_id: int, changes: ProfilePatch, storage: BlobStorage | None = None
 ) -> AccountResponse:
     try:
         user = await session.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -104,12 +105,19 @@ async def update_profile(
         profile = await session.get(Profile, user_id)
         if profile is None:
             raise RuntimeError("Account profile is missing")
+        previous_picture = None
+        if "picture_url" in changes.model_fields_set:
+            previous_picture = profile.picture_blob_name
+            profile.picture_blob_name = None
         for name, value in changes.model_dump(exclude_unset=True).items():
             setattr(profile, name, value)
         await session.flush()
         await session.refresh(profile)
         response = await read_account(session, user_id)
         await session.commit()
+        from app.features.accounts.pictures import cleanup_picture
+
+        await cleanup_picture(storage, previous_picture, user_id)
         return response
     except Exception:
         await session.rollback()

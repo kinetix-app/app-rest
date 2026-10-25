@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 
-from azure.core.exceptions import ResourceExistsError
+from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 from azure.storage.blob import ContentSettings
-from azure.storage.blob.aio import BlobServiceClient
+from azure.storage.blob.aio import BlobServiceClient, ContainerClient
 from fastapi import Depends, HTTPException, Request
 
 from app.core.config import Settings
@@ -46,6 +46,49 @@ class BlobStorage:
             logger=_http_logger,
         )
         self.container = self.client.get_container_client(settings.azure_storage_container)
+
+    async def _private_profile_container(self) -> ContainerClient:
+        container = self.client.get_container_client(self.settings.azure_storage_profile_container)
+        try:
+            await container.create_container(public_access=None)
+        except ResourceExistsError:
+            pass
+        properties = await container.get_container_properties()
+        if properties.public_access:
+            raise ValueError("Profile container must be private")
+        return container
+
+    async def upload_profile_picture(self, name: str, data: bytes) -> None:
+        async with asyncio.timeout(self.settings.azure_storage_timeout_seconds):
+            container = await self._private_profile_container()
+            await container.upload_blob(
+                name,
+                data,
+                overwrite=False,
+                content_settings=ContentSettings(
+                    content_type="image/jpeg", cache_control="private, no-store"
+                ),
+            )
+
+    async def read_profile_picture(self, name: str) -> bytes:
+        async with asyncio.timeout(self.settings.azure_storage_timeout_seconds):
+            container = await self._private_profile_container()
+            blob = container.get_blob_client(name)
+            properties = await blob.get_blob_properties()
+            if properties.size > 5 * 1024 * 1024:
+                raise ValueError("Stored profile picture exceeds limit")
+            download = await blob.download_blob()
+            return await download.readall()
+
+    async def delete_profile_picture(self, name: str) -> None:
+        async with asyncio.timeout(self.settings.azure_storage_timeout_seconds):
+            container = self.client.get_container_client(
+                self.settings.azure_storage_profile_container
+            )
+            try:
+                await container.delete_blob(name)
+            except ResourceNotFoundError:
+                pass
 
     async def close(self) -> None:
         await self.client.close()

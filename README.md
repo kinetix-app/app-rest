@@ -452,6 +452,7 @@ Copy the storage block from `.env.example` into an existing local `.env`. Azurit
 | `AZURE_STORAGE_ACCOUNT_URL` | Backend account root; host example `http://127.0.0.1:10000/kinetixlocal` |
 | `AZURE_STORAGE_ACCOUNT_KEY` | Backend-only shared account key; never expose a real Azure key to clients |
 | `AZURE_STORAGE_CONTAINER` | Blob container name, default `exercises` |
+| `AZURE_STORAGE_PROFILE_CONTAINER` | Separate private profile image container, default `profile-pictures`; never receives public-read mode |
 | `AZURE_STORAGE_MEDIA_BASE_URL` | Client-reachable account/CDN root, without container, credentials, query or SAS; used to build stored media URLs |
 | `AZURE_STORAGE_LOCAL_PUBLIC_READ` | Default false; `.env.example` enables blob-only anonymous reads for local demonstration; forbidden in production |
 | `AZURE_STORAGE_TIMEOUT_SECONDS` | Per-upload/container operation timeout, default 30 seconds; readiness uses `DATABASE_TIMEOUT_SECONDS` |

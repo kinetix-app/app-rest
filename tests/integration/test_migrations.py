@@ -365,7 +365,7 @@ async def test_onboarding_upgrade_preserves_legacy_profile_and_leaves_setup_expl
                 assert target[-1] is None
                 saved = (await connection.execute(text("SELECT * FROM profiles"))).one()
                 assert saved[: len(before)] == before
-                assert saved[len(before) :] == (None, None, None, None, None)
+                assert saved[len(before) :] == (None, None, None, None, None, None)
                 assert await connection.scalar(text("SELECT count(*) FROM account_objective")) == 0
                 await connection.execute(
                     text("UPDATE profiles SET age=30,height_cm=170,weight_kg=60,weight_unit='kg'")
@@ -377,6 +377,63 @@ async def test_onboarding_upgrade_preserves_legacy_profile_and_leaves_setup_expl
                     lambda conn: migrate(conn, "fe73e224195b", downgrade=True)
                 )
                 assert (await connection.execute(text("SELECT * FROM profiles"))).one() == before
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_private_picture_migration_preserves_legacy_and_clears_removed_references(
+    integration_url,
+):
+    engine = create_async_engine(integration_url)
+    schema = "migration_" + uuid4().hex
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(lambda conn: migrate(conn, "20261025_04"))
+                await connection.execute(text("INSERT INTO users DEFAULT VALUES"))
+                await connection.execute(text("INSERT INTO users DEFAULT VALUES"))
+                await connection.execute(
+                    text(
+                        "INSERT INTO profiles (user_id,display_name,age,weight_unit,picture_url) "
+                        "VALUES (1,'Uploaded later',30,'lb','https://example.test/old.jpg'),"
+                        "(2,'Legacy',40,'kg','https://example.test/legacy.jpg')"
+                    )
+                )
+                before = (
+                    await connection.execute(text("SELECT * FROM profiles ORDER BY user_id"))
+                ).all()
+                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                upgraded = (
+                    await connection.execute(text("SELECT * FROM profiles ORDER BY user_id"))
+                ).all()
+                for original, saved in zip(before, upgraded, strict=True):
+                    assert saved[:-1] == original
+                    assert saved[-1] is None
+                await connection.execute(
+                    text(
+                        "UPDATE profiles SET picture_url='/api/v1/me/profile/picture',"
+                        "picture_blob_name='profiles/1/test.jpg' WHERE user_id=1"
+                    )
+                )
+                await connection.run_sync(lambda conn: migrate(conn, "20261025_04", downgrade=True))
+                rows = (
+                    await connection.execute(
+                        text(
+                            "SELECT display_name,age,weight_unit,picture_url "
+                            "FROM profiles ORDER BY user_id"
+                        )
+                    )
+                ).all()
+                assert rows == [
+                    ("Uploaded later", 30, "lb", None),
+                    ("Legacy", 40, "kg", "https://example.test/legacy.jpg"),
+                ]
             finally:
                 await transaction.rollback()
     finally:
