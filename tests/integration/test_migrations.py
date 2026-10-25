@@ -1,6 +1,7 @@
 """Verify real migration DDL and populated upgrades in isolated test-owned schemas."""
 
 import re
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -85,7 +86,7 @@ async def test_clean_migration_matches_sql_draft_and_downgrades(integration_url)
                 await connection.run_sync(lambda conn: migrate(conn, "head"))
                 actual = await connection.run_sync(lambda conn: schema_signature(conn, migrated))
                 expected = await connection.run_sync(lambda conn: schema_signature(conn, draft))
-                assert len(actual) == 19
+                assert len(actual) == 20
                 assert actual == expected
                 # Empty-account upgrades must leave sequences ready to generate ID 1.
                 assert (
@@ -167,6 +168,163 @@ async def test_populated_uuid_upgrade_preserves_accounts_and_relationships(integ
                 )
                 await connection.run_sync(lambda conn: migrate(conn, "head"))
                 assert (await connection.execute(query)).all() == before
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_completed_session_upgrade_preserves_legacy_utc_and_mass(integration_url):
+    engine = create_async_engine(integration_url)
+    schema = "migration_" + uuid4().hex
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(lambda conn: migrate(conn, "20261021_03"))
+                await connection.execute(text("INSERT INTO users DEFAULT VALUES"))
+                await connection.execute(
+                    text("INSERT INTO exercise (activity_type,name) VALUES ('gym','Legacy')")
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO training_session (user_id,activity_type,started_at,ended_at) "
+                        "VALUES (1,'gym','2026-10-20 14:00:00','2026-10-20 15:00:00')"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO session_exercise (session_id,exercise_id,exercise_order) "
+                        "VALUES (1,1,1)"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO exercise_set (session_exercise_id,set_number,reps,weight_kg) "
+                        "VALUES (1,1,8,42.50)"
+                    )
+                )
+                await connection.execute(text("SET LOCAL TIME ZONE 'Pacific/Honolulu'"))
+                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                row = (
+                    await connection.execute(
+                        text(
+                            "SELECT started_at AT TIME ZONE 'UTC', ended_at AT TIME ZONE 'UTC',"
+                            "client_session_id,payload_fingerprint FROM training_session"
+                        )
+                    )
+                ).one()
+                assert row == (datetime(2026, 10, 20, 14), datetime(2026, 10, 20, 15), None, None)
+                assert (
+                    str(await connection.scalar(text("SELECT weight_kg FROM exercise_set")))
+                    == "42.500000"
+                )
+                await connection.run_sync(lambda conn: migrate(conn, "20261021_03", downgrade=True))
+                assert (
+                    str(await connection.scalar(text("SELECT started_at FROM training_session")))
+                    == "2026-10-20 14:00:00"
+                )
+                assert (
+                    str(await connection.scalar(text("SELECT weight_kg FROM exercise_set")))
+                    == "42.50"
+                )
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_independent_exercise_upgrade_preserves_history_and_cleans_draft_json(
+    integration_url,
+):
+    import json
+
+    engine = create_async_engine(integration_url)
+    schema = "migration_" + uuid4().hex
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(lambda conn: migrate(conn, "20261025_01"))
+                for statement in (
+                    "INSERT INTO users DEFAULT VALUES",
+                    "INSERT INTO exercise (activity_type,name) VALUES ('gym','Legacy')",
+                    "INSERT INTO routine (user_id,name) VALUES (1,'Origin')",
+                    "INSERT INTO routine_exercise (routine_id,exercise_id,exercise_order) "
+                    "VALUES (1,1,1)",
+                    "INSERT INTO training_session "
+                    "(user_id,routine_id,activity_type,started_at,ended_at) "
+                    "VALUES (1,1,'gym','2026-10-25T10:00:00Z','2026-10-25T11:00:00Z')",
+                    "INSERT INTO session_exercise "
+                    "(session_id,routine_exercise_id,exercise_id,exercise_order,notes) "
+                    "VALUES (1,1,1,1,'keep')",
+                    "INSERT INTO exercise_set "
+                    "(session_exercise_id,set_number,reps,weight_kg,completed) "
+                    "VALUES (1,1,8,45.359237,true)",
+                    "INSERT INTO routine_slot_provenance "
+                    "(user_id,routine_id,routine_exercise_id,exercise_id) VALUES (1,1,1,1)",
+                ):
+                    await connection.execute(text(statement))
+                snapshot = {
+                    "name": "Origin",
+                    "routine_id": 1,
+                    "started_at": "2026-10-25T10:00:00Z",
+                    "exercises": [
+                        {
+                            "client_id": str(uuid4()),
+                            "exercise_id": 1,
+                            "routine_exercise_id": 1,
+                            "sets": [],
+                        }
+                    ],
+                }
+                await connection.execute(
+                    text(
+                        "INSERT INTO session_draft (user_id,client_session_id,snapshot) "
+                        "VALUES (1,:key,CAST(:snapshot AS jsonb))"
+                    ),
+                    {"key": uuid4(), "snapshot": json.dumps(snapshot)},
+                )
+                history_query = text(
+                    "SELECT s.user_id,s.routine_id,s.started_at,s.ended_at,e.id,e.exercise_id,"
+                    "e.exercise_order,e.notes,v.id,v.reps,v.weight_kg,v.completed "
+                    "FROM training_session s JOIN session_exercise e ON e.session_id=s.id "
+                    "JOIN exercise_set v ON v.session_exercise_id=e.id"
+                )
+                before = (await connection.execute(history_query)).all()
+                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                assert (await connection.execute(history_query)).all() == before
+                actual = await connection.run_sync(lambda conn: schema_signature(conn, schema))
+                assert "routine_slot_provenance" not in actual
+                assert "routine_exercise_id" not in [
+                    col[0] for col in actual["session_exercise"][0]
+                ]
+                saved = await connection.scalar(text("SELECT snapshot FROM session_draft"))
+                assert "routine_exercise_id" not in saved["exercises"][0]
+                assert saved["routine_id"] == 1
+                assert (
+                    await connection.scalar(text("SELECT finish_update_routine FROM session_draft"))
+                    is False
+                )
+                # Removing template slots no longer affects any recorded exercise/set.
+                await connection.execute(text("DELETE FROM routine_exercise WHERE id=1"))
+                assert (await connection.execute(history_query)).all() == before
+                await connection.run_sync(lambda conn: migrate(conn, "20261025_01", downgrade=True))
+                assert (await connection.execute(history_query)).all() == before
+                assert (
+                    await connection.scalar(
+                        text("SELECT routine_exercise_id FROM session_exercise")
+                    )
+                    is None
+                )
+                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                assert (await connection.execute(history_query)).all() == before
             finally:
                 await transaction.rollback()
     finally:

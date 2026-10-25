@@ -5,7 +5,7 @@ Reviewed on 20 October 2026 for [DAT01](https://github.com/kinetix-app/managemen
 ## Scope and verdict
 
 [db-schema.sql](../db-schema.sql) is the product schema reference, not a bootstrap script.
-The Alembic chain now initializes all 19 tables. Revision `20261021_01` converts existing
+The initial product Alembic chain initializes 19 tables. Revision `20261021_01` converts existing
 UUID account IDs to generated BIGINTs, preserving identity/profile relationships; revision
 `20261021_02` adds nutrition, training and goal tables. SQLAlchemy metadata covers all
 tables. These persistence changes do not deliver the proposed feature APIs or business rules.
@@ -35,7 +35,7 @@ See [migration instructions](../README.md#checks-and-database-changes).
 
 Nullable catalogue/routine owners do not automatically grant public access. Services must derive personal ownership from `CurrentUser` and reject cross-account references and reads.
 
-The complete [Mermaid data model](data-model.md) shows all current draft tables, fields and foreign-key relationships. All 19 tables are migrated; feature behavior still needs implementation.
+The complete [Mermaid data model](data-model.md) shows the current tables, fields and foreign-key relationships. Alembic is the runtime authority; schema presence alone does not establish feature behavior.
 
 ## Sprint 1 fit and remaining work
 
@@ -46,7 +46,7 @@ The complete [Mermaid data model](data-model.md) shows all current draft tables,
 | [Dated baseline](https://github.com/kinetix-app/app/issues/9), [baseline review](https://github.com/kinetix-app/app/issues/10) | `body_measurement.date` and `weight_kg` support a dated weight observation with a unit. | Validate at least one measurement and bounds. Agree how the baseline is associated with the selected goal; additional measures depend on DEC-01. |
 | [Chosen targets](https://github.com/kinetix-app/app/issues/14) | `physical_goal` and `nutrition_goal` hold chosen targets; body measurements record actual progress. The activity-goal table is excluded by the owner's decision. | Define the physical target metric/unit and which goal/target is current. Intermediate milestones and activity goals are excluded by the owner's decision; reconcile the linked requirement's milestone and weekly-session-target scope. No replacement weekly target is assumed. Resolve remaining DEC-01/02 rules. |
 | [Saved routines](https://github.com/kinetix-app/app/issues/4), [session start](https://github.com/kinetix-app/app/issues/15) | Ordered exercise references, notes and individually numbered default sets mirror the recorded exercise/set structure. | Require personal routine ownership for the Sprint 1 flow; validate positive positions and uniqueness within a routine in services. Supply at least eight catalogue exercises; save/start a three-exercise example. |
-| [Set recording](https://github.com/kinetix-app/app/issues/16), [completion](https://github.com/kinetix-app/app/issues/18), [reopen](https://github.com/kinetix-app/app/issues/19), [history](https://github.com/kinetix-app/app/issues/21), [units](https://github.com/kinetix-app/app/issues/22) | Actual results live in `exercise_set`, separately from routine templates. | Validate order/set-number uniqueness and numeric/date bounds in services. Copy the current routine selection/order and latest completed workout measurements into new session rows at start, using routine defaults for unmatched slots. Never reconstruct history from current templates. Treat `ended_at` as completion for this simple flow, use `TIMESTAMPTZ` for events and define the user's local display date. Classify the selected gym catalogue explicitly as kg/repetitions. |
+| [Set recording](https://github.com/kinetix-app/app/issues/16), [completion](https://github.com/kinetix-app/app/issues/18), [reopen](https://github.com/kinetix-app/app/issues/19), [history](https://github.com/kinetix-app/app/issues/21), [units](https://github.com/kinetix-app/app/issues/22) | Actual results live in `exercise_set`, separately from routine templates. Completed aggregates have account-scoped client UUIDs and canonical six-decimal kg storage. | Start and record locally, using previous/default measurements as guidance only. Finish atomically persists explicit actual results; normalized fingerprints and uniqueness prevent duplicate retries. Reopen owned completed records using timezone-aware events and requested kg/lb display. Broader measurement formats remain in app#63. |
 | [Manual foods](https://github.com/kinetix-app/app/issues/5), [portion logging](https://github.com/kinetix-app/app/issues/23) | Foods have per-100-g values in comments; items have gram quantities and meals belong to a date. | Make manual foods owned/private, document kcal and grams in the API, validate nonnegative nutrients, positive portions and exactly one food-or-recipe source with the matching quantity in services. |
 | [Proportional calculation](https://github.com/kinetix-app/app/issues/24), [daily target comparison](https://github.com/kinetix-app/app/issues/25), [separate dates](https://github.com/kinetix-app/app/issues/27) | Day/meal/item joins support totals. | Keep one nutrition day per `(user_id, date)` through service logic that also handles concurrent requests. Agree decimal calculation/rounding and whether changed foods, recipes or targets alter earlier days; the current joins recalculate history from current definitions. |
 | [Form](https://github.com/kinetix-app/app-rest/issues/4) and [coach](https://github.com/kinetix-app/app-rest/issues/5) research | No AI tables. | Sufficient for research-only Sprint 1 scope. Keep suggested outputs separate from chosen targets and actual records when delivery is selected. |
@@ -83,26 +83,43 @@ Manual entry remains supported alongside the explicit local catalogue seed comma
 
 Exercise classifications do not determine workout units. The selected gym flow still needs service/UI configuration for kilograms and repetitions. Actual completed sets remain separate from editable catalogue metadata.
 
-## Routine loading and previous workout results
+## Routine guidance, drafts and performed results
 
-The owner selected **last completed workout results** when loading a routine. Routine definitions and performed workouts remain separate records but use a common nested exercise/set shape:
+Routine definitions and performed workouts have independent exercise rows with numbered
+child sets. `routine_exercise` references `routine_exercise_set`; `session_exercise`
+references `exercise_set` and the catalogue exercise. There is no FK or other relation
+between template slots and performed exercise rows. A completed `training_session` keeps
+its optional owned `routine_id` origin. Template editing cannot alter history.
 
-- `routine_exercise`: exercise reference, position, notes and `routine_exercise_set` children.
-- `session_exercise`: the same exercise fields and `exercise_set` children, plus optional template-slot provenance.
-- Both set tables: `set_number`, `reps`, `weight_kg`, `duration_seconds`, `distance_km`. Only performed sets store `completed`; a new workout starts with all sets incomplete.
+Guidance uses the current account's latest completed occurrence of each exercise with
+at least one recorded set, across routines and blank workouts. Selection orders by finish
+time/session ID and then exercise order/entry ID descending. Empty later occurrences,
+active sessions and other accounts are excluded. Repeated template exercises share this
+exercise-level configuration; missing history falls back to saved defaults. The same
+query powers `GET /exercises/{id}/last-configuration`. Guidance is never persisted as an
+actual result unless the user records it.
 
-The previous aggregate `routine_exercise.sets` and shared per-exercise measurement columns are removed. Each default set can now have its own repetitions, weight, duration and distance. Set count is derived from child rows. Parent IDs remain internal persistence details; future API responses can expose both as `exercises[].sets[]`.
+Start saves an owned `session_draft` JSON snapshot; ticking saves confirmed actual values
+and exercise layout. Original start instant and routine origin are immutable. Finish
+prunes unconfirmed sets from both snapshot and completed result, preserving selected
+exercise order and zero-set entries. Plain completion can be empty. Routine update is an
+explicit finish decision requiring an owned origin and at least one exercise: it replaces
+template selection/order/defaults from confirmed completed contents, keeping the name.
+Template update, aggregate creation and draft retirement commit together. Retries freeze
+the finish instant and update decision and never reapply template changes.
 
-For the future start/load service:
+Revision `20261024_01` widens weight columns to `NUMERIC(12,6)`, adds workout idempotency
+and interprets legacy naive training timestamps as UTC. Conversion uses the exact
+`0.45359237` kg/lb factor and half-up rounding once at storage precision; display rounds
+to two decimals. Historical nullable retry keys remain supported.
 
-1. Authorize the routine and use its current exercise selection/order.
-2. Select this user's latest completed `training_session` for the same routine (`ended_at IS NOT NULL`, ordered by `ended_at DESC, id DESC`). Ignore active sessions and other users' sessions.
-3. Match previous `session_exercise` rows by `routine_exercise_id` and the same `exercise_id`. The stable slot link distinguishes repeated exercises and survives reordering. If the slot is new, the exercise reference changed, or no prior result exists, use its saved routine sets instead. Use the latest workout only; do not silently merge results from older workouts.
-4. Copy the chosen set measurements into new session/set rows, with `completed = FALSE`. Keep historical rows and routine defaults unchanged. Notes come from the current routine; only previous set measurements are reused.
-
-`session_exercise.routine_exercise_id` is nullable for exercises added directly to a workout. `ON DELETE SET NULL` preserves the historical exercise and its results if a template slot is deleted. Services must verify the slot belongs to the selected routine and matches the exercise. Editing defaults or recording a new result must not rewrite earlier workouts.
-
-This change defines the schema and loading contract. The load/start API, copying transaction and frontend integration are not implemented by editing this SQL draft.
+Revision `20261025_01` adds owned resumable snapshots with account/client UUID uniqueness
+and a partial unique index for one active snapshot/account. Revision `20261025_02` removes
+`session_exercise.routine_exercise_id` and `routine_slot_provenance`, cleans legacy draft
+JSON references and stores the finish update decision. Workouts, exercises, sets and
+session-level routine origins survive upgrade. Downgrade recreates empty metadata and
+nullable links; removed associations cannot be reconstructed. Runtime/browser/native
+acceptance remains distinct from schema verification.
 
 ## Category values
 
@@ -135,7 +152,7 @@ Previous runtime checks passed: lockfile, Ruff lint/format, 106 non-integration 
 
 Before routine/set alignment, the 18-table draft passed isolated PostgreSQL execution. Removed tables and sport references are absent; category fields use VARCHAR (VARCHAR[] for multiple exercise classifications). Manual exercise, linked session/exercise and physical-goal inserts passed. Temporary schemas and records were rolled back. That historical check preceded the initial product migrations.
 
-The current 19-table draft passed isolated PostgreSQL verification: routine and session set measurements have matching types, per-set defaults persist, and a sample copy from the latest completed workout creates fresh incomplete sets. Editing or removing a routine slot preserves historical results. Temporary schemas and records were rolled back. This validates the schema relationships and sample SQL flow, not a delivered load/start API.
+The earlier 19-table draft passed isolated PostgreSQL verification: routine and session set measurements had matching types, per-set defaults persisted, and a sample copy from the latest completed workout created fresh incomplete sets. Editing or removing a routine slot preserved historical results. Temporary schemas and records were rolled back. That historical SQL example predates the local-workout contract described above; it does not establish runtime acceptance of the revised flow.
 
 ## Exercise media seeding follow-up
 

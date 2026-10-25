@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -22,6 +23,7 @@ from app.features.training.models import (
     routine,
     routine_exercise,
     routine_exercise_set,
+    session_draft,
     session_exercise,
     training_session,
 )
@@ -288,7 +290,7 @@ async def add_workout(api, routine_id, slots, *, user_id=None, ended_at=None, re
                 user_id=user_id or api.alice_id,
                 routine_id=routine_id,
                 activity_type="gym",
-                started_at=datetime(2026, 10, 20),
+                started_at=datetime(2026, 10, 20, tzinfo=UTC),
                 ended_at=ended_at,
             )
             .returning(training_session.c.id)
@@ -298,7 +300,6 @@ async def add_workout(api, routine_id, slots, *, user_id=None, ended_at=None, re
                 session_exercise.insert()
                 .values(
                     session_id=session_id,
-                    routine_exercise_id=slot["id"],
                     exercise_id=slot["exercise"]["id"],
                     exercise_order=slot["exercise_order"],
                 )
@@ -334,7 +335,7 @@ async def test_latest_results_defaults_reordering_and_history_preservation(train
                 for slot in slots
             ],
         )
-    now = datetime(2026, 10, 21, 12)
+    now = datetime(2026, 10, 21, 12, tzinfo=UTC)
     await add_workout(api, saved["id"], slots, ended_at=now - timedelta(days=1), reps=8)
     latest_id = await add_workout(api, saved["id"], slots[:2], ended_at=now, reps=12)
     # Active and another account's later session cannot override this account's completed workout.
@@ -343,13 +344,13 @@ async def test_latest_results_defaults_reordering_and_history_preservation(train
         api, saved["id"], slots, user_id=api.bob_id, ended_at=now + timedelta(hours=1), reps=99
     )
     loaded = (await api.client.get(path, auth=api.alice)).json()["exercises"]
-    assert [slot["sets"][0]["reps"] for slot in loaded] == [12, 12, 5]
-    assert loaded[0]["default_sets"][0]["weight_kg"] == "20.00"
-    assert loaded[0]["sets"][0]["weight_kg"] == "42.50"
+    assert [slot["sets"][0]["reps"] for slot in loaded] == [12, 12, 8]
+    assert loaded[0]["default_sets"][0]["weight_kg"] == "20.000000"
+    assert loaded[0]["sets"][0]["weight_kg"] == "42.500000"
     assert [slot["sets_source"] for slot in loaded] == [
         "latest_session",
         "latest_session",
-        "routine",
+        "latest_session",
     ]
     async with api.sessions() as session:
         before_sets = (
@@ -388,9 +389,9 @@ async def test_latest_results_defaults_reordering_and_history_preservation(train
             .mappings()
             .all()
         )
-        assert historical[0]["routine_exercise_id"] is None
+        assert "routine_exercise_id" not in historical[0]
         assert historical[0]["exercise_id"] == api.catalogue[0]
-        assert historical[1]["routine_exercise_id"] == slots[1]["id"]
+        assert "routine_exercise_id" not in historical[1]
         assert (
             await session.scalar(sa.select(sa.func.count()).select_from(routine_exercise_set)) == 1
         )
@@ -484,11 +485,11 @@ async def test_planned_sets_roundtrip_patch_omission_and_history(training_api):
     saved = response.json()
     slot = saved["exercises"][0]
     assert [row["set_number"] for row in slot["default_sets"]] == [1, 2]
-    assert [row["weight_kg"] for row in slot["default_sets"]] == ["80.00", "0.00"]
+    assert [row["weight_kg"] for row in slot["default_sets"]] == ["80.000000", "0.000000"]
     path = f"/api/v1/routines/{saved['id']}"
     assert (await api.client.get(path, auth=api.alice)).json() == saved
     session_id = await add_workout(
-        api, saved["id"], [slot], ended_at=datetime(2026, 10, 21), reps=12
+        api, saved["id"], [slot], ended_at=datetime(2026, 10, 21, tzinfo=UTC), reps=12
     )
     selection = {"id": slot["id"], "exercise_id": api.catalogue[0]}
     preserved = await api.client.patch(path, auth=api.alice, json={"exercises": [selection]})
@@ -689,3 +690,666 @@ async def test_multiple_body_parts_match_any_without_duplicates_and_keep_visibil
     assert [row["id"] for row in unknown.json()["items"]] == api.catalogue[::2]
     invalid = await api.client.get(path, auth=api.alice, params=[("body_part", "CHEST")] * 31)
     assert invalid.status_code == 422
+
+
+def completed_payload(api, **changes):
+    return {
+        "client_session_id": str(uuid4()),
+        "started_at": "2026-10-24T16:00:00Z",
+        "ended_at": "2026-10-24T16:45:00Z",
+        "exercises": [
+            {
+                "exercise_id": api.catalogue[0],
+                "sets": [{"reps": 8, "weight": {"value": "100.00", "unit": "lb"}}],
+            }
+        ],
+        **changes,
+    }
+
+
+async def test_complete_blank_workout_units_history_isolation_and_retry(training_api):
+    api = training_api
+    payload = completed_payload(api)
+    response = await api.client.post(
+        "/api/v1/sessions?weight_unit=lb", auth=api.alice, json=payload
+    )
+    assert response.status_code == 201, response.text
+    saved = response.json()
+    assert saved["state"] == "completed" and saved["routine_id"] is None
+    actual = saved["exercises"][0]["sets"][0]
+    assert actual["weight_kg"] == "45.359237"
+    assert actual["weight"] == {"value": "100.00", "unit": "lb"}
+    path = f"/api/v1/sessions/{saved['id']}"
+    assert (await api.client.get(path + "?weight_unit=lb", auth=api.alice)).json() == saved
+    kg = (await api.client.get(path, auth=api.alice)).json()
+    assert kg["exercises"][0]["sets"][0]["weight"] == {"value": "45.36", "unit": "kg"}
+    for _ in range(3):
+        repeated = await api.client.post(
+            "/api/v1/sessions?weight_unit=lb", auth=api.alice, json=payload
+        )
+        assert repeated.status_code == 200 and repeated.json() == saved
+    changed = {**payload, "ended_at": "2026-10-24T17:00:00Z"}
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.alice, json=changed)
+    ).status_code == 409
+    # Equal instants and normalized mass also represent the same aggregate.
+    normalized = {
+        **payload,
+        "started_at": "2026-10-24T18:00:00+02:00",
+        "exercises": [
+            {
+                "exercise_id": api.catalogue[0],
+                "sets": [{"reps": 8, "weight": {"value": "45.359237", "unit": "kg"}}],
+            }
+        ],
+    }
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.alice, json=normalized)
+    ).status_code == 200
+    assert (await api.client.get(path, auth=api.bob)).status_code == 404
+    assert (await api.client.get("/api/v1/sessions", auth=api.bob)).json()["items"] == []
+    second = await api.client.post(
+        "/api/v1/sessions", auth=api.alice, json={**payload, "client_session_id": str(uuid4())}
+    )
+    assert second.status_code == 201 and second.json()["id"] != saved["id"]
+    history = (await api.client.get("/api/v1/sessions?limit=1&offset=1", auth=api.alice)).json()
+    assert history["items"][0]["id"] == saved["id"]
+    async with api.sessions() as session:
+        assert await session.scalar(sa.select(sa.func.count()).select_from(training_session)) == 2
+        assert await session.scalar(sa.select(exercise_set.c.weight_kg).limit(1)) == Decimal(
+            "45.359237"
+        )
+
+
+async def test_concurrent_completed_retry_and_changed_key_race(training_api):
+    api = training_api
+    payload = completed_payload(api)
+    replies = await asyncio.gather(
+        *[api.client.post("/api/v1/sessions", auth=api.alice, json=payload) for _ in range(4)]
+    )
+    assert sorted(reply.status_code for reply in replies) == [200, 200, 200, 201]
+    assert len({reply.json()["id"] for reply in replies}) == 1
+    changed = completed_payload(api)
+    replies = await asyncio.gather(
+        api.client.post("/api/v1/sessions", auth=api.alice, json=changed),
+        api.client.post(
+            "/api/v1/sessions", auth=api.alice, json={**changed, "ended_at": "2026-10-24T17:00:00Z"}
+        ),
+    )
+    assert sorted(reply.status_code for reply in replies) == [201, 409]
+
+
+async def test_completed_exercises_independent_of_template_slots(training_api):
+    api = training_api
+    template = await create(api, [api.catalogue[0], api.catalogue[0]])
+    slots = template["exercises"]
+    payload = completed_payload(
+        api,
+        routine_id=template["id"],
+        exercises=[
+            {
+                "exercise_id": api.catalogue[0],
+                "routine_exercise_id": slot["id"],
+                "sets": [{"reps": index + 1, "weight": {"value": "0", "unit": "kg"}}],
+            }
+            for index, slot in enumerate(slots)
+        ],
+    )
+    path = f"/api/v1/routines/{template['id']}"
+    # Remove first slot; replace the other exercise while recording locally.
+    update = await api.client.patch(
+        path,
+        auth=api.alice,
+        json={"exercises": [{"id": slots[1]["id"], "exercise_id": api.catalogue[1]}]},
+    )
+    assert update.status_code == 200
+    response = await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    assert response.status_code == 201, response.text
+    actual = response.json()["exercises"]
+    assert all("routine_exercise_id" not in entry for entry in actual)
+    assert [entry["exercise"]["id"] for entry in actual] == [api.catalogue[0]] * 2
+    assert [entry["sets"][0]["reps"] for entry in actual] == [1, 2]
+    forged = {
+        **payload,
+        "client_session_id": str(uuid4()),
+        "exercises": [{**payload["exercises"][0], "routine_exercise_id": 999999}],
+    }
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.alice, json=forged)
+    ).status_code == 201
+    # Another account cannot claim the session-level routine origin.
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.bob, json=payload)
+    ).status_code == 422
+    # A previously successful submission still retries after its exercise ceases to be selectable.
+    async with api.sessions.begin() as session:
+        await session.execute(
+            sa.update(exercise).where(exercise.c.id == api.catalogue[0]).values(imported_at=None)
+        )
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    ).status_code == 200
+
+
+async def test_completed_invalid_nested_data_rollback_and_auth(training_api):
+    api = training_api
+    payload = completed_payload(api)
+    assert (await api.client.post("/api/v1/sessions", json=payload)).status_code == 401
+    for changes in (
+        {"user_id": api.bob_id},
+        {"started_at": "2026-10-24T16:00:00"},
+        {"ended_at": "2026-10-24T15:00:00Z"},
+        {"exercises": [{"exercise_id": api.private, "sets": payload["exercises"][0]["sets"]}]},
+        {
+            "exercises": [
+                {
+                    "exercise_id": api.catalogue[0],
+                    "sets": [{"reps": True, "weight": {"value": "1", "unit": "kg"}}],
+                }
+            ]
+        },
+        {
+            "exercises": [
+                {
+                    "exercise_id": api.catalogue[0],
+                    "sets": [{"reps": 1, "weight": {"value": "NaN", "unit": "kg"}}],
+                }
+            ]
+        },
+        {
+            "exercises": [
+                {
+                    "exercise_id": api.catalogue[0],
+                    "sets": [{"reps": 1, "weight": {"value": 1, "unit": "kg"}}],
+                }
+            ]
+        },
+    ):
+        result = await api.client.post(
+            "/api/v1/sessions", auth=api.alice, json={**payload, **changes}
+        )
+        assert result.status_code == 422, result.text
+    async with api.sessions() as session:
+        assert await session.scalar(sa.select(sa.func.count()).select_from(training_session)) == 0
+
+
+async def test_completed_database_failure_rolls_back_full_aggregate(training_api, monkeypatch):
+    from app.features.training import sessions as service
+    from app.features.training.schemas import SessionCreate
+
+    api = training_api
+
+    async def failed(*args, **kwargs):
+        raise RuntimeError("injected response/database failure")
+
+    monkeypatch.setattr(service, "get_session", failed)
+    async with api.sessions() as session:
+        with pytest.raises(RuntimeError):
+            await service.create_session(
+                session, api.alice_id, SessionCreate.model_validate(completed_payload(api))
+            )
+    async with api.sessions() as session:
+        for table in (training_session, session_exercise, exercise_set):
+            assert await session.scalar(sa.select(sa.func.count()).select_from(table)) == 0
+
+
+async def test_explicit_routine_units_roundtrip_and_ambiguous_input(training_api):
+    api = training_api
+    payload = {
+        "name": "Pounds",
+        "exercises": [
+            {
+                "exercise_id": api.catalogue[0],
+                "sets": [{"reps": 8, "weight": {"value": "100", "unit": "lb"}}],
+            }
+        ],
+    }
+    response = await api.client.post(
+        "/api/v1/routines?weight_unit=lb", auth=api.alice, json=payload
+    )
+    assert response.status_code == 201, response.text
+    actual = response.json()["exercises"][0]["sets"][0]
+    assert actual["weight_kg"] == "45.359237"
+    assert actual["weight"] == {"value": "100.00", "unit": "lb"}
+    payload["exercises"][0]["sets"][0]["weight_kg"] = "45.36"
+    assert (
+        await api.client.post("/api/v1/routines", auth=api.alice, json=payload)
+    ).status_code == 422
+
+
+def draft_snapshot(api, *, confirmed=False):
+    return {
+        "name": "Upper body",
+        "routine_id": None,
+        "started_at": "2026-10-25T10:00:00Z",
+        "exercises": [
+            {
+                "client_id": str(uuid4()),
+                "exercise_id": api.catalogue[0],
+                "routine_exercise_id": None,
+                "sets": [
+                    {
+                        "client_id": str(uuid4()),
+                        "reps": 6 if confirmed else None,
+                        "weight": {"value": "100", "unit": "lb"} if confirmed else None,
+                        "completed": confirmed,
+                    }
+                ],
+            }
+        ],
+    }
+
+
+async def test_draft_save_resume_confirm_finish_and_immutable_retries(training_api):
+    api = training_api
+    key = str(uuid4())
+    path = f"/api/v1/session-drafts/{key}"
+    data = draft_snapshot(api)
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json() is None
+    saved = await api.client.put(path, auth=api.alice, json=data)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["state"] == "draft"
+    assert (await api.client.put(path, auth=api.alice, json=data)).json() == saved.json()
+    # Dispose pooled connections to establish persistence independent of the request/connection.
+    await api.sessions.kw["bind"].dispose()
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json() == saved.json()
+    assert (await api.client.get("/api/v1/sessions", auth=api.alice)).json()["items"] == []
+    finish = {"ended_at": "2026-10-25T10:10:00Z"}
+    value = data["exercises"][0]["sets"][0]
+    value.update(reps=6, weight={"value": "100", "unit": "lb"}, completed=True)
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    # Editing and unchecking a set must replace its stored confirmation.
+    value.update(reps=7, completed=False)
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    value["completed"] = True
+    await api.client.put(path, auth=api.alice, json=data)
+    result = await api.client.post(path + "/finish", auth=api.alice, json=finish)
+    assert result.status_code == 200, result.text
+    assert result.json()["state"] == "completed"
+    assert result.json()["exercises"][0]["sets"][0]["weight_kg"] == "45.359237"
+    assert result.json()["exercises"][0]["sets"][0]["reps"] == 7
+    assert (
+        await api.client.post(path + "/finish", auth=api.alice, json=finish)
+    ).json() == result.json()
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json() is None
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 409
+    assert (await api.client.delete(path, auth=api.alice)).status_code == 409
+    assert (
+        await api.client.post(
+            path + "/finish", auth=api.alice, json={"ended_at": "2026-10-25T10:11:00Z"}
+        )
+    ).status_code == 409
+    assert len((await api.client.get("/api/v1/sessions", auth=api.alice)).json()["items"]) == 1
+    assert (
+        await api.client.put(
+            f"/api/v1/session-drafts/{uuid4()}", auth=api.alice, json=draft_snapshot(api)
+        )
+    ).status_code == 200
+
+
+async def test_draft_ownership_discard_validation_and_single_active(training_api):
+    api = training_api
+    key = str(uuid4())
+    path = f"/api/v1/session-drafts/{key}"
+    data = draft_snapshot(api, confirmed=True)
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.bob)).json() is None
+    assert (await api.client.delete(path, auth=api.bob)).status_code == 204
+    assert (
+        await api.client.post(
+            path + "/finish", auth=api.bob, json={"ended_at": "2026-10-25T10:10:00Z"}
+        )
+    ).status_code == 404
+    assert (
+        await api.client.put(f"/api/v1/session-drafts/{uuid4()}", auth=api.alice, json=data)
+    ).status_code == 409
+    data["started_at"] = "2026-10-25T10:01:00Z"
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 409
+    data["started_at"] = "2026-10-25T10:00:00Z"
+    data["exercises"][0]["exercise_id"] = api.private
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 422
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json()["exercises"][0][
+        "exercise_id"
+    ] == api.catalogue[0]
+    assert (await api.client.delete(path, auth=api.alice)).status_code == 204
+    assert (await api.client.delete(path, auth=api.alice)).status_code == 204
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json() is None
+    # Concurrent different keys cannot create two active drafts.
+    data["exercises"][0]["exercise_id"] = api.catalogue[0]
+    responses = await asyncio.gather(
+        *[
+            api.client.put(f"/api/v1/session-drafts/{uuid4()}", auth=api.alice, json=data)
+            for _ in range(2)
+        ]
+    )
+    assert sorted(result.status_code for result in responses) == [200, 409]
+
+
+async def test_draft_rejects_invalid_confirmed_values_and_concurrent_finish_is_atomic(training_api):
+    api = training_api
+    key = str(uuid4())
+    path = f"/api/v1/session-drafts/{key}"
+    data = draft_snapshot(api)
+    value = data["exercises"][0]["sets"][0]
+    value["completed"] = True
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 422
+    value.update(reps=6, weight={"value": "0", "unit": "kg"})
+    data["exercises"][0]["sets"].append(dict(value))
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 422
+    data["exercises"][0]["sets"].pop()
+    data["started_at"] = "2026-10-25T10:00:00"
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 422
+    data["started_at"] = "2026-10-25T10:00:00Z"
+    data["exercises"][0]["sets"] = []
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    finish = {"ended_at": "2026-10-25T10:10:00Z"}
+    data["exercises"] = []
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    data = draft_snapshot(api, confirmed=True)
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    assert (
+        await api.client.post(
+            path + "/finish", auth=api.alice, json={"ended_at": "2026-10-25T09:59:00Z"}
+        )
+    ).status_code == 422
+    # Legacy submission cannot bypass the active draft state machine.
+    legacy = {
+        "client_session_id": key,
+        "routine_id": None,
+        "started_at": data["started_at"],
+        "ended_at": finish["ended_at"],
+        "exercises": [
+            {
+                "exercise_id": api.catalogue[0],
+                "sets": [{"reps": 6, "weight": {"value": "100", "unit": "lb"}}],
+            }
+        ],
+    }
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.alice, json=legacy)
+    ).status_code == 409
+    results = await asyncio.gather(
+        *[api.client.post(path + "/finish", auth=api.alice, json=finish) for _ in range(2)]
+    )
+    assert [result.status_code for result in results] == [200, 200]
+    assert results[0].json() == results[1].json()
+    async with api.sessions() as session:
+        assert await session.scalar(sa.select(sa.func.count()).select_from(training_session)) == 1
+        assert await session.scalar(sa.select(sa.func.count()).select_from(exercise_set)) == 1
+
+
+async def test_partial_finish_prunes_unsaved_values_but_keeps_exercise_order(training_api):
+    api = training_api
+    key = str(uuid4())
+    path = f"/api/v1/session-drafts/{key}"
+    data = draft_snapshot(api, confirmed=True)
+    data["exercises"][0]["sets"].append(
+        {
+            "client_id": str(uuid4()),
+            "reps": "not a number",
+            "weight": {"value": "invalid", "unit": "kg"},
+            "completed": False,
+        }
+    )
+    data["exercises"].append(
+        {
+            "client_id": str(uuid4()),
+            "exercise_id": api.catalogue[1],
+            "sets": [{"client_id": str(uuid4()), "reps": -1, "weight": "bad", "completed": False}],
+        }
+    )
+    saved = await api.client.put(path, auth=api.alice, json=data)
+    assert saved.status_code == 200, saved.text
+    assert "routine_exercise_id" not in saved.json()["exercises"][0]
+    result = await api.client.post(
+        path + "/finish", auth=api.alice, json={"ended_at": "2026-10-25T10:10:00Z"}
+    )
+    assert result.status_code == 200, result.text
+    entries = result.json()["exercises"]
+    assert [entry["exercise"]["id"] for entry in entries] == api.catalogue[:2]
+    assert [len(entry["sets"]) for entry in entries] == [1, 0]
+    assert entries[0]["sets"][0]["set_number"] == 1
+    async with api.sessions() as session:
+        snapshot = await session.scalar(sa.select(session_draft.c.snapshot))
+        assert [len(item["sets"]) for item in snapshot["exercises"]] == [1, 0]
+        assert all(value["completed"] for item in snapshot["exercises"] for value in item["sets"])
+        assert await session.scalar(sa.select(sa.func.count()).select_from(exercise_set)) == 1
+
+
+async def test_blank_finish_and_empty_routine_update_validation(training_api):
+    api = training_api
+    template = await create(api)
+    path = f"/api/v1/session-drafts/{uuid4()}"
+    data = {**draft_snapshot(api), "routine_id": template["id"], "exercises": []}
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    finish = {"ended_at": "2026-10-25T10:10:00Z"}
+    assert (
+        await api.client.post(
+            path + "/finish", auth=api.alice, json={**finish, "update_routine": True}
+        )
+    ).status_code == 422
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json() is not None
+    result = await api.client.post(path + "/finish", auth=api.alice, json=finish)
+    assert result.status_code == 200 and result.json()["exercises"] == []
+    assert result.json()["routine_id"] == template["id"]
+    assert (
+        await api.client.get(f"/api/v1/routines/{template['id']}", auth=api.alice)
+    ).json() == template
+
+
+async def test_finish_optional_routine_update_is_atomic_and_retry_decision_is_frozen(training_api):
+    api = training_api
+    template = await create(api)
+    routine_path = f"/api/v1/routines/{template['id']}"
+    path = f"/api/v1/session-drafts/{uuid4()}"
+    data = draft_snapshot(api, confirmed=True)
+    data["routine_id"] = template["id"]
+    data["exercises"][0]["exercise_id"] = api.catalogue[3]
+    data["exercises"].append(
+        {
+            "client_id": str(uuid4()),
+            "exercise_id": api.catalogue[3],
+            "sets": [],
+        }
+    )
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    changed_origin = {**data, "routine_id": None}
+    assert (await api.client.put(path, auth=api.alice, json=changed_origin)).status_code == 409
+    finish = {"ended_at": "2026-10-25T10:10:00Z", "update_routine": True}
+    result = await api.client.post(path + "/finish", auth=api.alice, json=finish)
+    assert result.status_code == 200, result.text
+    assert result.json()["routine_id"] == template["id"]
+    updated = (await api.client.get(routine_path, auth=api.alice)).json()
+    assert updated["name"] == template["name"]
+    assert [item["exercise"]["id"] for item in updated["exercises"]] == [api.catalogue[3]] * 2
+    assert [len(item["default_sets"]) for item in updated["exercises"]] == [1, 0]
+    assert updated["exercises"][0]["default_sets"][0]["weight_kg"] == "45.359237"
+    # A retry must not overwrite changes made to the routine after completion.
+    await api.client.patch(
+        routine_path, auth=api.alice, json={"exercises": [{"exercise_id": api.catalogue[4]}]}
+    )
+    assert (
+        await api.client.post(path + "/finish", auth=api.alice, json=finish)
+    ).json() == result.json()
+    assert (await api.client.get(routine_path, auth=api.alice)).json()["exercises"][0]["exercise"][
+        "id"
+    ] == api.catalogue[4]
+    assert (
+        await api.client.post(
+            path + "/finish", auth=api.alice, json={**finish, "update_routine": False}
+        )
+    ).status_code == 409
+    assert (await api.client.post(path + "/finish", auth=api.bob, json=finish)).status_code == 404
+    path = f"/api/v1/session-drafts/{uuid4()}"
+    assert (await api.client.put(path, auth=api.bob, json=data)).status_code == 422
+    # Keep-routine completion leaves template defaults and selection unchanged.
+    data["exercises"][0]["exercise_id"] = api.catalogue[5]
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    assert (
+        await api.client.post(
+            path + "/finish", auth=api.alice, json={**finish, "update_routine": False}
+        )
+    ).status_code == 200
+    assert (await api.client.get(routine_path, auth=api.alice)).json()["exercises"][0]["exercise"][
+        "id"
+    ] == api.catalogue[4]
+
+
+async def test_finish_routine_update_failure_rolls_back_workout_and_template(
+    training_api, monkeypatch
+):
+    from app.features.training import drafts
+    from app.features.training.schemas import DraftFinish
+
+    api = training_api
+    template = await create(api)
+    key = uuid4()
+    path = f"/api/v1/session-drafts/{key}"
+    data = {**draft_snapshot(api, confirmed=True), "routine_id": template["id"]}
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    replace = drafts.replace_routine_from_session
+
+    async def fail_after_update(*args):
+        await replace(*args)
+        raise RuntimeError("injected post-update failure")
+
+    monkeypatch.setattr(drafts, "replace_routine_from_session", fail_after_update)
+    async with api.sessions() as session:
+        with pytest.raises(RuntimeError, match="injected post-update"):
+            await drafts.finish_draft(
+                session,
+                api.alice_id,
+                key,
+                DraftFinish.model_validate(
+                    {
+                        "ended_at": "2026-10-25T10:10:00Z",
+                        "update_routine": True,
+                    }
+                ),
+            )
+    async with api.sessions() as session:
+        assert await session.scalar(sa.select(sa.func.count()).select_from(training_session)) == 0
+        assert await session.scalar(sa.select(session_draft.c.completed_session_id)) is None
+    assert (
+        await api.client.get(f"/api/v1/routines/{template['id']}", auth=api.alice)
+    ).json() == template
+
+
+async def test_last_configuration_uses_owned_latest_nonempty_occurrence_and_units(training_api):
+    api = training_api
+    exercise_id = api.catalogue[0]
+    path = f"/api/v1/exercises/{exercise_id}/last-configuration"
+    assert (await api.client.get(path)).status_code == 401
+    assert (await api.client.get(path, auth=api.alice)).json() == {
+        "exercise_id": exercise_id,
+        "sets": [],
+    }
+    assert (
+        await api.client.get(f"/api/v1/exercises/{api.private}/last-configuration", auth=api.alice)
+    ).status_code == 404
+    for reps, ended in ((5, "2026-10-24T17:00:00Z"), (7, "2026-10-24T18:00:00Z")):
+        payload = completed_payload(
+            api,
+            ended_at=ended,
+            exercises=[
+                {
+                    "exercise_id": exercise_id,
+                    "sets": [{"reps": reps, "weight": {"value": "100", "unit": "lb"}}],
+                },
+                {
+                    "exercise_id": exercise_id,
+                    "sets": [{"reps": reps + 1, "weight": {"value": "100", "unit": "lb"}}],
+                },
+                {"exercise_id": exercise_id, "sets": []},
+            ],
+        )
+        assert (
+            await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+        ).status_code == 201
+    # A later session with no recorded set and another account's history are excluded.
+    for auth, sets in (
+        (api.alice, []),
+        (api.bob, [{"reps": 99, "weight": {"value": "1", "unit": "kg"}}]),
+    ):
+        payload = completed_payload(
+            api,
+            ended_at="2026-10-24T19:00:00Z",
+            exercises=[
+                {
+                    "exercise_id": exercise_id,
+                    "sets": sets,
+                }
+            ],
+        )
+        assert (
+            await api.client.post("/api/v1/sessions", auth=auth, json=payload)
+        ).status_code == 201
+    result = (await api.client.get(path + "?weight_unit=lb", auth=api.alice)).json()
+    assert result["sets"][0]["reps"] == 8
+    assert result["sets"][0]["weight"] == {"value": "100.00", "unit": "lb"}
+    assert (await api.client.get(path, auth=api.alice)).json()["sets"][0]["weight"][
+        "value"
+    ] == "45.36"
+    template = await create(api, [exercise_id, exercise_id])
+    assert [item["sets"][0]["reps"] for item in template["exercises"]] == [8, 8]
+    assert all(item["default_sets"] == [] for item in template["exercises"])
+
+
+async def test_legacy_slot_fingerprint_retries_remain_compatible(training_api):
+    import hashlib
+    import json
+
+    from app.features.training.schemas import SessionCreate
+    from app.features.training.sessions import normalized_payload
+
+    api = training_api
+    payload = completed_payload(api)
+    payload["exercises"][0]["routine_exercise_id"] = 12345
+    saved = await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    assert saved.status_code == 201
+    old_fingerprint = hashlib.sha256(
+        json.dumps(
+            normalized_payload(SessionCreate.model_validate(payload), legacy=True),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    async with api.sessions.begin() as session:
+        await session.execute(
+            training_session.update()
+            .where(training_session.c.id == saved.json()["id"])
+            .values(payload_fingerprint=old_fingerprint)
+        )
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    ).status_code == 200
+    payload["exercises"][0]["sets"][0]["reps"] += 1
+    assert (
+        await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    ).status_code == 409
+
+
+async def test_unavailable_routine_update_preserves_draft_and_actual_values(training_api):
+    api = training_api
+    template = await create(api)
+    path = f"/api/v1/session-drafts/{uuid4()}"
+    data = {**draft_snapshot(api, confirmed=True), "routine_id": template["id"]}
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    async with api.sessions.begin() as session:
+        await session.execute(
+            routine_exercise.delete().where(routine_exercise.c.routine_id == template["id"])
+        )
+        await session.execute(routine.delete().where(routine.c.id == template["id"]))
+    result = await api.client.post(
+        path + "/finish",
+        auth=api.alice,
+        json={
+            "ended_at": "2026-10-25T10:10:00Z",
+            "update_routine": True,
+        },
+    )
+    assert result.status_code == 422
+    restored = (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json()
+    assert restored["exercises"][0]["sets"][0]["reps"] == 6
+    assert restored["routine_id"] == template["id"]
+    assert (await api.client.get("/api/v1/sessions", auth=api.alice)).json()["items"] == []

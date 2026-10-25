@@ -2,7 +2,7 @@
 
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.
 
-The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, Azure Blob Storage resources, an exercise/media seed command, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`. The training API supports owned routine creation, reading and editing, plus exercise catalogue browsing. Nutrition provides personal food create/read/update/delete operations; session, meal logging and goal APIs remain backlog work.
+The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, Azure Blob Storage resources, an exercise/media seed command, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`. The training API supports owned routine creation, reading and editing, plus exercise catalogue browsing. Nutrition provides personal food create/read/update/delete operations. Training adds atomic completed-workout submission and private history; meal logging and goal APIs remain backlog work.
 
 ## Start here
 
@@ -176,8 +176,8 @@ uv run --locked --no-build alembic upgrade head
 uv run --locked --no-build alembic check
 ```
 
-Feature revisions belong in `migrations/versions/`. The migration chain creates all 19 tables from `db-schema.sql`, with SQLAlchemy metadata in
-`app/features/accounts/`, `nutrition/`, `training/` and `goals/`. Goals currently define persistence tables only. Nutrition provides personal food operations, and training implements routine and exercise APIs; session creation, recording and meal logging remain future feature work.
+Feature revisions belong in `migrations/versions/`. The migration chain creates all 20 tables from `db-schema.sql`, with SQLAlchemy metadata in
+`app/features/accounts/`, `nutrition/`, `training/` and `goals/`. Goals currently define persistence tables only. Nutrition provides personal food operations, and training implements routine/exercise APIs and completed-workout submission/history; ongoing recording uses owned resumable draft snapshots. Meal logging remains future feature work.
 Existing account constraints remain in place, including the user-status CHECK.
 
 Revision `20261021_01` converts existing account UUIDs to generated BIGINT IDs while
@@ -372,21 +372,69 @@ up to 100 sets. Omitting `sets` preserves defaults for a retained exercise; `set
 clears defaults and explicit `null` is rejected. Set changes commit with the routine
 transaction. Notes editing and session recording remain separate work.
 
-Loading a routine resolves set measurements from the current account's latest completed
-session for that routine (`ended_at DESC, id DESC`). Matching uses both stable slot ID and
-exercise ID; unmatched slots fall back to saved defaults. Active sessions, other accounts
-and results from older sessions are excluded. Saved defaults remain separately available
-in `default_sets`; decimal measurements serialize as strings. Reads never update defaults
-or recorded results. Template updates serialize on the routine row; detail reads hold a
-shared row lock while loading the template. Removing a slot clears only the historical
-provenance link, preserving recorded exercises and sets.
+Loading a routine resolves guidance from the current account's latest completed occurrence
+of each exercise with at least one recorded set, across routines and blank workouts.
+Ordering is finish time, session ID, exercise position and entry ID descending. Repeated
+routine exercises receive the same latest exercise guidance; exercises without history
+fall back to saved defaults. Active sessions and other accounts are excluded. Saved
+defaults remain separately available in `default_sets`; decimal measurements serialize
+as strings. Reads never update defaults or recorded results. Template updates serialize
+on the routine row; detail reads hold a shared row lock while loading the template.
+Performed exercises have no relationship to routine slots. Removing/replacing a template
+slot cannot change historical exercises or sets.
 
 Missing/inaccessible routines and exercises return 404. Invalid fields or unavailable
 exercise/slot selections return 422, without disclosing private records. Invalid credentials
 return 401, inactive accounts 403, and unavailable authentication 503. Writes commit
-atomically or roll back. Session start (Kinetix-013), routine deletion, exercise authoring
-and frontend screens are separate work; these routes alone do not complete the integrated
-session-start acceptance check.
+atomically or roll back. Routine deletion and exercise authoring remain separate work. Backend routes alone do not complete the integrated session acceptance checks.
+
+## Completed workouts (Kinetix-013/014/016)
+
+The frontend keeps one account-scoped ongoing draft, synchronized through the draft APIs
+below. Legacy `POST /api/v1/sessions`
+submits the complete workout once, with a client-generated UUID, timezone-aware
+`started_at`/`ended_at`, optional `routine_id`, and ordered `exercises` containing
+`exercise_id` and actual `sets`. Each set supplies positive integral `reps` and
+`weight: {"value": "100.00", "unit": "lb"}`. Weights require decimal text; ownership
+always comes from authentication. Array order defines exercise/set order, including
+repeated exercises. Supported measurements in this increment are weight/repetitions;
+other formats remain deferred to [app#63](https://github.com/kinetix-app/app/issues/63).
+
+Submission validates source access and persists the completed session, entries and sets
+in one transaction. The unique `(user_id, client_session_id)` and normalized payload
+fingerprint recover concurrent retries and lost responses: first creation returns 201,
+identical retries return 200 and the same ID, changed content under the same key returns
+409. Retry checks precede current template/catalogue validation so later source changes
+do not invalidate a previously persisted workout. Clients must retain the original UUID,
+recorded finish instant and frozen payload until success is confirmed.
+
+`GET /api/v1/sessions?limit=50&offset=0&weight_unit=kg` returns
+`{items, limit, offset}`, ordered by finish instant descending and ID descending;
+limit is 1–100. `GET /api/v1/sessions/{id}?weight_unit=lb` reopens owned actual results.
+Both use the same completed-session DTO, including ordered exercises and sets. Another
+account's detail returns 404 and its workouts never appear in the caller's history.
+Each set exposes canonical `weight_kg` with six decimal places plus explicitly labelled
+`weight: {value, unit}` rounded to two display decimals. Routine detail/create/update also
+accept `weight_unit=kg|lb`; planned-set inputs accept either legacy `weight_kg` or explicit
+`weight`, and reject ambiguous dual fields. Pounds are never returned under `weight_kg`.
+Conversion uses exactly 0.45359237 kg/lb and ROUND_HALF_UP once at six-decimal storage
+precision; 100 lb persists as 45.359237 kg and displays as 100.00 lb or 45.36 kg.
+
+Revision `20261024_01` expands planned/actual weights to NUMERIC(12,6), adds nullable
+legacy-compatible idempotency fields and source-slot ownership provenance, and converts
+training event timestamps to timezone-aware values. No previous timezone semantics were
+recorded for naive legacy training events: the explicit migration policy interprets them
+as UTC using `AT TIME ZONE 'UTC'`, independent of the database connection timezone.
+Existing values and historical rows are preserved. Revision `20261025_02` subsequently
+removes the source-slot relation and retained-slot table, while keeping session-level
+`routine_id` origin, catalogue exercise references and every performed measurement.
+Downgrading reduces weight precision to two decimal places and removes idempotency and
+retained-slot metadata; review data-loss implications before downgrading.
+
+Empty/partial draft completion persists only confirmed sets, retaining every selected
+exercise even when no set was confirmed. An unavailable routine origin returns 422 and
+leaves the draft intact. Browser/native acceptance is reported separately from backend
+integration verification.
 
 ## Exercise catalogue and media seeding
 
@@ -456,3 +504,54 @@ uv run --locked --no-build pytest
 ```
 
 PostgreSQL seed tests use isolated test-owned schemas. Blob integration tests create and delete only uniquely named `test-exercises-*` containers; they skip when the explicit test account name/URL/key are absent. CI supplies both PostgreSQL and Azurite, so these checks run there.
+
+
+## Resumable workout drafts
+
+`PUT /api/v1/session-drafts/{client_session_id}` saves an owned snapshot with `name`,
+`routine_id`, timezone-aware `started_at`, and ordered `exercises`. Exercises include a
+UUID `client_id`, `exercise_id` and ordered `sets`; each set includes a UUID `client_id`,
+nullable `reps` and `weight`, and `completed`. Confirmed sets require positive repetitions
+and an explicit weight measurement. Invalid unconfirmed values are normalized to null.
+Unconfirmed values stay outside completed history and exercise guidance. Clients save
+on confirmation and invalidate it when editing a value. Identical PUT retries are safe;
+existing start times and routine origins are immutable. The response echoes the saved
+snapshot, client UUID and `state: "draft"`.
+
+`GET /api/v1/session-drafts` returns the active owned snapshot or JSON null, allowing
+resumption after restarting. There is at most one active draft per account; starting
+another UUID returns 409. `DELETE /api/v1/session-drafts/{uuid}` discards an owned draft,
+returns 204 on retries or inaccessible UUIDs, and never deletes completed workouts.
+
+`POST /api/v1/session-drafts/{uuid}/finish` accepts
+`{ "ended_at": "...", "update_routine": false }`. Completion atomically creates the
+completed aggregate, prunes every unconfirmed set from the retained snapshot, and retires
+the draft. Exercise order and zero-set entries remain; an empty exercise list is allowed
+when keeping the routine. Invalid times or unavailable sources return 422 with the draft
+intact. Another account cannot read, complete or discard the owner's draft.
+
+When `update_routine` is true, an owned routine origin and nonempty exercise list are
+required. The same transaction replaces that routine's exercise selection/order and
+default sets from the completed workout while preserving its name. Only confirmed sets
+become defaults; zero-set exercises remain selected. With false, the template is unchanged.
+The finish time and update decision are frozen: identical retries return the same
+completed workout without reapplying template changes; a different time/decision,
+editing a completed draft or discarding it returns 409. Mutable draft operations
+serialize on the account row.
+
+`GET /api/v1/exercises/{exercise_id}/last-configuration?weight_unit=kg` returns
+`{exercise_id, sets}` for a selectable exercise. It selects the account's latest completed
+exercise occurrence with at least one set, ordered by finish time/session ID and then
+exercise position/entry ID descending. No history returns an empty set list. This lookup
+also supplies routine guidance. It never reads another account's history or inserts
+guidance as performed values; clients display these values as placeholders only.
+
+Revision `20261025_01` adds draft snapshots. Revision `20261025_02` removes performed
+exercise-to-routine-slot links and retained-slot metadata, cleans obsolete slot keys from
+old JSON snapshots, and records the finish update decision. Existing workouts, exercises,
+sets, catalogue references and session-level routine origins are preserved. Draft input
+silently drops old slot keys; legacy `POST /sessions` privately accepts them solely for
+pre-migration fingerprint retry compatibility, and never persists a slot association.
+Active API schemas and responses omit slot references. Downgrading `20261025_02` cannot
+reconstruct removed links; downgrading `20261025_01` removes snapshots/retry pointers but
+keeps completed workouts. Browser/native acceptance is verified separately.
