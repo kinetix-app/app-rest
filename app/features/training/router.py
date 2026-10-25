@@ -9,6 +9,7 @@ from pydantic import StringConstraints
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
 from app.features.training import drafts, service, sessions
+from app.features.training.errors import IdempotencyConflict, InvalidSelection, TrainingNotFound
 from app.features.training.schemas import (
     BodyPartList,
     DraftFinish,
@@ -66,7 +67,7 @@ async def get_exercise(
 ) -> ExerciseResponse:
     try:
         return await service.get_exercise(session, user.id, exercise_id)
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Exercise not found") from None
 
 
@@ -90,7 +91,7 @@ async def get_routine(
 ) -> RoutineResponse:
     try:
         return await service.get_routine(session, user.id, routine_id, weight_unit)
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Routine not found") from None
 
 
@@ -100,9 +101,9 @@ async def post_routine(
 ) -> RoutineResponse:
     try:
         return await service.create_routine(session, user.id, data, weight_unit)
-    except service.InvalidSelection:
+    except InvalidSelection:
         raise HTTPException(422, "Exercise selection is unavailable") from None
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Routine not found") from None
 
 
@@ -116,9 +117,9 @@ async def patch_routine(
 ) -> RoutineResponse:
     try:
         return await service.update_routine(session, user.id, routine_id, data, weight_unit)
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Routine not found") from None
-    except service.InvalidSelection:
+    except InvalidSelection:
         raise HTTPException(422, "Exercise or routine slot selection is unavailable") from None
 
 
@@ -134,11 +135,11 @@ async def post_session(
         result, created = await sessions.create_session(session, user.id, data, weight_unit)
         response.status_code = 201 if created else 200
         return result
-    except sessions.IdempotencyConflict:
+    except IdempotencyConflict:
         raise HTTPException(
             409, "Client session ID already has different workout content"
         ) from None
-    except service.InvalidSelection:
+    except InvalidSelection:
         raise HTTPException(422, "Exercise or routine source selection is unavailable") from None
 
 
@@ -162,7 +163,7 @@ async def get_session(
 ) -> SessionResponse:
     try:
         return await sessions.get_session(session, user.id, session_id, weight_unit)
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Session not found") from None
 
 
@@ -177,9 +178,9 @@ async def put_draft(
 ) -> DraftResponse:
     try:
         return await drafts.save_draft(session, user.id, client_session_id, data)
-    except sessions.IdempotencyConflict:
+    except IdempotencyConflict:
         raise HTTPException(409, "Draft conflicts with an active or completed workout") from None
-    except service.InvalidSelection:
+    except InvalidSelection:
         raise HTTPException(422, "Exercise or routine source selection is unavailable") from None
 
 
@@ -190,7 +191,7 @@ async def delete_draft(
     try:
         await drafts.discard_draft(session, user.id, client_session_id)
         return Response(status_code=204)
-    except sessions.IdempotencyConflict:
+    except IdempotencyConflict:
         raise HTTPException(409, "Completed workouts cannot be discarded") from None
 
 
@@ -204,13 +205,13 @@ async def finish_draft(
 ) -> SessionResponse:
     try:
         return await drafts.finish_draft(session, user.id, client_session_id, data, weight_unit)
-    except sessions.IdempotencyConflict:
+    except IdempotencyConflict:
         raise HTTPException(
             409, "Workout already finished with a different time or routine update decision"
         ) from None
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Draft not found") from None
-    except service.InvalidSelection:
+    except InvalidSelection:
         raise HTTPException(
             422, "Provide a valid finish time and available routine/exercise sources"
         ) from None
@@ -225,5 +226,5 @@ async def get_last_configuration(
 ) -> ExerciseConfiguration:
     try:
         return await service.get_last_configuration(session, user.id, exercise_id, weight_unit)
-    except service.TrainingNotFound:
+    except TrainingNotFound:
         raise HTTPException(404, "Exercise not found") from None

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
 from app.features.training import sessions
+from app.features.training.errors import IdempotencyConflict, InvalidSelection, TrainingNotFound
 from app.features.training.models import routine, session_draft, training_session
 from app.features.training.schemas import (
     DraftFinish,
@@ -16,11 +17,7 @@ from app.features.training.schemas import (
     SessionCreate,
     SessionResponse,
 )
-from app.features.training.service import (
-    InvalidSelection,
-    TrainingNotFound,
-    replace_routine_from_session,
-)
+from app.features.training.service import replace_routine_from_session
 from app.features.training.units import WeightUnit
 
 
@@ -74,14 +71,14 @@ async def save_draft(
         row = await find_draft(session, user_id, key)
         if row is not None:
             if row["completed_session_id"] is not None:
-                raise sessions.IdempotencyConflict
+                raise IdempotencyConflict
             if row["snapshot"] == snapshot:
                 result = present(row)
                 await session.commit()
                 return result
             original = DraftSnapshot.model_validate(row["snapshot"])
             if original.started_at != data.started_at or original.routine_id != data.routine_id:
-                raise sessions.IdempotencyConflict
+                raise IdempotencyConflict
         else:
             if await session.scalar(
                 sa.select(session_draft.c.id).where(
@@ -94,7 +91,7 @@ async def save_draft(
                     training_session.c.client_session_id == key,
                 )
             ):
-                raise sessions.IdempotencyConflict
+                raise IdempotencyConflict
         # Validate private catalogue access and session-level routine origin before saving.
         await sessions.validate_sources(session, user_id, data)
         if row is None:
@@ -122,7 +119,7 @@ async def discard_draft(session: AsyncSession, user_id: int, key: UUID):
         row = await find_draft(session, user_id, key)
         if row is not None:
             if row["completed_session_id"] is not None:
-                raise sessions.IdempotencyConflict
+                raise IdempotencyConflict
             await session.execute(session_draft.delete().where(session_draft.c.id == row["id"]))
         await session.commit()
     except Exception:
@@ -148,7 +145,7 @@ async def finish_draft(
                 result.ended_at != data.ended_at
                 or row["finish_update_routine"] != data.update_routine
             ):
-                raise sessions.IdempotencyConflict
+                raise IdempotencyConflict
             await session.commit()
             return result
         snapshot = DraftSnapshot.model_validate(row["snapshot"])

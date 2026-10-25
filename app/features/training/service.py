@@ -6,6 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.features.training.errors import InvalidSelection, TrainingNotFound
 from app.features.training.history import last_configurations
 from app.features.training.models import (
     exercise,
@@ -33,14 +34,6 @@ from app.features.training.schemas import (
     WeightResponse,
 )
 from app.features.training.units import WeightUnit, display_weight
-
-
-class TrainingNotFound(Exception):
-    """Missing or inaccessible resource."""
-
-
-class InvalidSelection(Exception):
-    """An exercise or template slot is unavailable for this routine."""
 
 
 def selectable_exercise(user_id: int) -> ColumnElement[bool]:

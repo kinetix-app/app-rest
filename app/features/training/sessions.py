@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
+from app.features.training.errors import IdempotencyConflict, InvalidSelection, TrainingNotFound
 from app.features.training.models import (
     exercise,
     exercise_set,
@@ -27,12 +28,8 @@ from app.features.training.schemas import (
     SetResponse,
     WeightResponse,
 )
-from app.features.training.service import InvalidSelection, TrainingNotFound, selectable_exercise
+from app.features.training.service import selectable_exercise
 from app.features.training.units import WeightUnit, canonical_weight, display_weight
-
-
-class IdempotencyConflict(Exception):
-    """An account reused a client key for different normalized workout content."""
 
 
 def present_set(row, unit: WeightUnit) -> SetResponse:
