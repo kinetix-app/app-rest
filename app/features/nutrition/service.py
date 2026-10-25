@@ -1,6 +1,14 @@
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.features.nutrition.errors import (
+    FoodInUseError,
+    FoodNotFoundError,
+    MealItemNotFoundError,
+    NutritionGoalNotFoundError,
+    RecipeInUseError,
+    RecipeNotFoundError,
+)
 from app.features.nutrition.models import (
     food,
     meal,
@@ -51,12 +59,12 @@ async def delete_food(
     db: AsyncSession,
     user_id: int,
     food_id: int,
-) -> str:
+) -> None:
     source = (
         await db.execute(select(food.c.id).where(food.c.id == food_id, food.c.user_id == user_id))
     ).scalar_one_or_none()
     if source is None:
-        return "not_found"
+        raise FoodNotFoundError
     is_used = (
         await db.execute(
             select(meal_item.c.id)
@@ -66,7 +74,7 @@ async def delete_food(
         )
     ).scalar_one_or_none()
     if is_used is not None:
-        return "in_use"
+        raise FoodInUseError
     stmt = (
         delete(food)
         .where(
@@ -84,7 +92,8 @@ async def delete_food(
         await db.rollback()
         raise
 
-    return "deleted" if deleted_id is not None else "not_found"
+    if deleted_id is None:
+        raise FoodNotFoundError
 
 
 # Service function to retrieve a food item by its ID for a specific user
@@ -99,7 +108,10 @@ async def get_food(
     )
 
     result = await db.execute(stmt)
-    return result.mappings().one_or_none()
+    found = result.mappings().one_or_none()
+    if found is None:
+        raise FoodNotFoundError
+    return found
 
 
 async def search_foods(db: AsyncSession, user_id: int, name: str | None = None):
@@ -127,7 +139,7 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
         .all()
     )
     if owned_food_ids != food_ids:
-        return None
+        raise FoodNotFoundError
 
     await db.rollback()
     async with db.begin():
@@ -203,31 +215,36 @@ async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = No
     return list(recipes.values())
 
 
-async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> str:
+async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> None:
     recipe_row = (
         await db.execute(
             select(recipe.c.id).where(recipe.c.id == recipe_id, recipe.c.user_id == user_id)
         )
     ).scalar_one_or_none()
     if recipe_row is None:
-        return "not_found"
+        raise RecipeNotFoundError
     is_logged = (
         await db.execute(select(meal_item.c.id).where(meal_item.c.recipe_id == recipe_id).limit(1))
     ).scalar_one_or_none()
     if is_logged is not None:
-        return "in_use"
+        raise RecipeInUseError
     try:
         await db.execute(
             delete(recipe_ingredient).where(recipe_ingredient.c.recipe_id == recipe_id)
         )
-        await db.execute(
-            delete(recipe).where(recipe.c.id == recipe_id, recipe.c.user_id == user_id)
-        )
+        deleted_id = (
+            await db.execute(
+                delete(recipe)
+                .where(recipe.c.id == recipe_id, recipe.c.user_id == user_id)
+                .returning(recipe.c.id)
+            )
+        ).scalar_one_or_none()
         await db.commit()
     except Exception:
         await db.rollback()
         raise
-    return "deleted"
+    if deleted_id is None:
+        raise RecipeNotFoundError
 
 
 async def get_or_create_meal(db: AsyncSession, user_id: int, day_date, meal_type: str):
@@ -283,7 +300,7 @@ async def get_or_create_meal(db: AsyncSession, user_id: int, day_date, meal_type
 async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMealItemCreate):
     recipes = await get_recipes(db, user_id, recipe_id=data.recipe_id)
     if not recipes:
-        return None
+        raise RecipeNotFoundError
     source = recipes[0]
     await db.rollback()
     async with db.begin():
@@ -308,7 +325,7 @@ async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMe
     }
 
 
-async def delete_meal_item(db: AsyncSession, user_id: int, meal_item_id: int) -> bool:
+async def delete_meal_item(db: AsyncSession, user_id: int, meal_item_id: int) -> None:
     owned_item = (
         select(meal_item.c.id)
         .select_from(meal_item.join(meal).join(nutrition_day))
@@ -324,7 +341,8 @@ async def delete_meal_item(db: AsyncSession, user_id: int, meal_item_id: int) ->
         )
     ).scalar_one_or_none()
     await db.commit()
-    return deleted is not None
+    if deleted is None:
+        raise MealItemNotFoundError
 
 
 async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate):
@@ -334,7 +352,7 @@ async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate)
         .one_or_none()
     )
     if source is None:
-        return None
+        raise FoodNotFoundError
     # The ownership lookup starts SQLAlchemy's implicit read transaction.
     # Close it before opening the atomic day/meal/item write transaction.
     await db.rollback()
@@ -497,6 +515,8 @@ async def update_food(
         await db.rollback()
         raise
 
+    if updated is None:
+        raise FoodNotFoundError
     return updated
 
 
@@ -533,7 +553,10 @@ async def update_nutrition_goal(db: AsyncSession, user_id: int, data: NutritionG
             .returning(nutrition_goal)
         )
         await db.commit()
-        return result.mappings().one_or_none()
+        updated = result.mappings().one_or_none()
     except Exception:
         await db.rollback()
         raise
+    if updated is None:
+        raise NutritionGoalNotFoundError
+    return updated

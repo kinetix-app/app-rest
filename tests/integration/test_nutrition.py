@@ -118,7 +118,9 @@ async def test_food_crud_search_validation_and_isolation(nutrition_api):
     assert (
         await api.client.get("/api/v1/foods", auth=api.bob, params={"name": "apple"})
     ).json() == []
-    assert (await api.client.get(f"/api/v1/foods/{food_id}", auth=api.bob)).status_code == 404
+    missing_food = await api.client.get(f"/api/v1/foods/{food_id}", auth=api.bob)
+    assert missing_food.status_code == 404
+    assert missing_food.json() == {"detail": "Food not found"}
 
     updated = await api.client.patch(
         f"/api/v1/foods/{food_id}", auth=api.alice, json={"brand": "Updated"}
@@ -152,12 +154,12 @@ async def test_recipes_calculate_macros_and_protect_owned_foods(nutrition_api):
     assert decimal(recipe["carbohydrates"]) == Decimal("40")
     assert decimal(recipe["fats"]) == Decimal("0.5")
     assert (await api.client.get("/api/v1/recipes", auth=api.bob)).json() == []
-    assert (
-        await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
-    ).status_code == 409
-    assert (
-        await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.bob)
-    ).status_code == 404
+    in_use_food = await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
+    assert in_use_food.status_code == 409
+    assert in_use_food.json() == {"detail": "A food used in a recipe or diary cannot be deleted"}
+    missing_recipe = await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.bob)
+    assert missing_recipe.status_code == 404
+    assert missing_recipe.json() == {"detail": "Recipe not found"}
     assert (
         await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.alice)
     ).status_code == 204
@@ -171,6 +173,7 @@ async def test_recipes_calculate_macros_and_protect_owned_foods(nutrition_api):
         json={"name": "Missing", "ingredients": [{"food_id": 999999, "quantity_grams": "10"}]},
     )
     assert unknown.status_code == 404
+    assert unknown.json() == {"detail": "Food not found"}
 
 
 async def test_diary_records_food_and_recipe_totals_and_enforces_ownership(nutrition_api):
@@ -212,29 +215,38 @@ async def test_diary_records_food_and_recipe_totals_and_enforces_ownership(nutri
     assert (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.bob)).json()[
         "items"
     ] == []
-    assert (
-        await api.client.delete(
-            f"/api/v1/nutrition/meal-items/{food_item.json()['id']}", auth=api.bob
-        )
-    ).status_code == 404
+    missing_item = await api.client.delete(
+        f"/api/v1/nutrition/meal-items/{food_item.json()['id']}", auth=api.bob
+    )
+    assert missing_item.status_code == 404
+    assert missing_item.json() == {"detail": "Meal item not found"}
     assert (
         await api.client.delete(
             f"/api/v1/nutrition/meal-items/{food_item.json()['id']}", auth=api.alice
         )
     ).status_code == 204
-    assert (
-        await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.alice)
-    ).status_code == 409
+    in_use_recipe = await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.alice)
+    assert in_use_recipe.status_code == 409
+    assert in_use_recipe.json() == {
+        "detail": "A recipe already logged in the diary cannot be deleted"
+    }
     assert (
         await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
     ).status_code == 409
-    assert (
-        await api.client.post(
-            "/api/v1/nutrition/meal-items",
-            auth=api.bob,
-            json={"date": day, "meal_type": "lunch", "food_id": food["id"], "quantity_grams": "20"},
-        )
-    ).status_code == 404
+    missing_food = await api.client.post(
+        "/api/v1/nutrition/meal-items",
+        auth=api.bob,
+        json={"date": day, "meal_type": "lunch", "food_id": food["id"], "quantity_grams": "20"},
+    )
+    assert missing_food.status_code == 404
+    assert missing_food.json() == {"detail": "Food not found"}
+    missing_recipe = await api.client.post(
+        "/api/v1/nutrition/recipe-items",
+        auth=api.bob,
+        json={"date": day, "meal_type": "lunch", "recipe_id": recipe["id"], "servings": "1"},
+    )
+    assert missing_recipe.status_code == 404
+    assert missing_recipe.json() == {"detail": "Recipe not found"}
 
 
 async def test_nutrition_goal_is_single_per_user_and_can_be_updated(nutrition_api):
@@ -252,7 +264,9 @@ async def test_nutrition_goal_is_single_per_user_and_can_be_updated(nutrition_ap
     assert changed.status_code == 200
     assert decimal(changed.json()["calories"]) == Decimal("2300")
     assert (await api.client.get(f"{path}/me", auth=api.bob)).status_code == 404
-    assert (await api.client.patch(f"{path}/me", auth=api.bob, json=payload)).status_code == 404
+    missing_goal = await api.client.patch(f"{path}/me", auth=api.bob, json=payload)
+    assert missing_goal.status_code == 404
+    assert missing_goal.json() == {"detail": "Nutrition goal not found"}
     assert (
         await api.client.post(path, auth=api.alice, json={**payload, "calories": 0})
     ).status_code == 422
