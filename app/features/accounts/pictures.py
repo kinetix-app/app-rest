@@ -6,7 +6,7 @@ from io import BytesIO
 from uuid import uuid4
 
 from azure.core.exceptions import AzureError, ResourceNotFoundError
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,7 +53,6 @@ def normalize_picture(data: bytes, content_type: str | None) -> bytes:
                 clean.save(output, format="JPEG", quality=85)
                 return output.getvalue()
     except (
-        UnidentifiedImageError,
         OSError,
         ValueError,
         Image.DecompressionBombError,

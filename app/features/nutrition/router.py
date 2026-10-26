@@ -70,7 +70,11 @@ async def read_nutrition_goal(
     return goal
 
 
-@nutrition_goal_router.post("", status_code=status.HTTP_201_CREATED)
+@nutrition_goal_router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    responses={409: {"description": "Nutrition goal already exists"}},
+)
 async def post_nutrition_goal(
     data: NutritionGoalInput, user: CurrentUser, session: DatabaseSession
 ) -> NutritionGoalResponse:

@@ -46,8 +46,9 @@ def test_reject_invalid_images(data, mime, error):
 
 
 def test_large_decoded_image_is_rejected():
+    large_picture = picture_bytes(size=(4001, 4000))
     with pytest.raises(InvalidPicture):
-        normalize_picture(picture_bytes(size=(4001, 4000)), "image/png")
+        normalize_picture(large_picture, "image/png")
 
 
 @pytest.mark.anyio

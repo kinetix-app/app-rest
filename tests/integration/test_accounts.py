@@ -591,16 +591,18 @@ async def test_private_picture_upload_isolation_replacement_and_failure(
             raise RuntimeError("Synthetic photo persistence failure")
 
         monkeypatch.setattr(pictures, "read_account", failed_response)
+        replacement_picture = image("blue")
         with pytest.raises(RuntimeError, match="Synthetic photo persistence failure"):
-            await upload(image("blue"))
+            await upload(replacement_picture)
         monkeypatch.setattr(pictures, "read_account", original_read)
         assert [blob.name async for blob in container.list_blobs()] == [first_blob]
         assert (await client.get(route, headers=alice)).content == fetched.content
         replaced = await upload(image("blue"))
         assert replaced.status_code == 200
         assert (await client.get(route, headers=alice)).content != fetched.content
+        first_blob_client = container.get_blob_client(first_blob)
         with pytest.raises(ResourceNotFoundError):
-            await container.get_blob_client(first_blob).get_blob_properties()
+            await first_blob_client.get_blob_properties()
         # Reopen from a new app/pool to verify DB and Azure persistence.
         restarted = create_app(app.state.settings)
         async with LifespanManager(restarted):
