@@ -342,10 +342,14 @@ async def test_onboarding_profile_objective_persistence_and_clearing(account_cli
     }
     partial = await client.patch("/api/v1/me/profile", headers=alice, json=profile)
     assert partial.status_code == 200
-    assert partial.json()["profile"]["weight_unit"] is None
+    assert partial.json()["profile"]["measurement_system"] is None
     assert partial.json()["onboarding"]["profile_complete"] is False
-    complete = await client.patch("/api/v1/me/profile", headers=alice, json={"weight_unit": "lb"})
+    complete = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"measurement_system": "imperial"}
+    )
     assert complete.json()["profile"]["weight_kg"] == "68.038855"
+    assert complete.json()["profile"]["height_cm"] == "170.25"
+    assert complete.json()["profile"]["measurement_system"] == "imperial"
     assert complete.json()["profile"]["display_name"] == "Alice"
     assert complete.json()["profile"]["picture_url"] is None
     assert complete.json()["onboarding"]["profile_complete"] is True
@@ -374,10 +378,19 @@ async def test_onboarding_profile_objective_persistence_and_clearing(account_cli
             saved = await fresh.get("/api/v1/auth/me", headers=alice)
             assert saved.json()["onboarding"]["required"] is False
             assert saved.json()["profile"]["height_cm"] == "170.25"
+            assert saved.json()["profile"]["measurement_system"] == "imperial"
             assert (await fresh.get("/api/v1/me/objective", headers=alice)).json() == {
                 "objective": "maintain_weight"
             }
-    cleared = await client.patch("/api/v1/me/profile", headers=alice, json={"weight_unit": None})
+    switched = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"measurement_system": "metric"}
+    )
+    assert switched.json()["profile"]["measurement_system"] == "metric"
+    assert switched.json()["profile"]["height_cm"] == "170.25"
+    assert switched.json()["profile"]["weight_kg"] == "68.038855"
+    cleared = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"measurement_system": None}
+    )
     assert cleared.json()["onboarding"] == {
         "profile_complete": False,
         "objective_selected": True,
@@ -405,7 +418,9 @@ async def test_setup_rejects_invalid_fields_and_client_ownership(account_client,
         {"weight_kg": 1001},
         {"weight_kg": "1.0000001"},
         {"weight_kg": "NaN"},
-        {"weight_unit": "stone"},
+        {"measurement_system": "stone"},
+        {"measurement_system": "kg"},
+        {"weight_unit": "lb"},
         {"picture_url": "http://example.test/a.png"},
         {"picture_url": "data:image/png;base64,a"},
         {"picture_url": "https://user:secret@example.test/a.png"},

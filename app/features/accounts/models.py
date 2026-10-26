@@ -52,7 +52,9 @@ class Profile(Base):
     age: Mapped[int | None] = mapped_column(Integer)
     height_cm: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
-    weight_unit: Mapped[str | None] = mapped_column(String(2), comment="Values: kg, lb")
+    measurement_system: Mapped[str | None] = mapped_column(
+        String(8), comment="Values: metric, imperial"
+    )
     picture_url: Mapped[str | None] = mapped_column(Text)
     picture_blob_name: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

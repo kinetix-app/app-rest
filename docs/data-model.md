@@ -29,7 +29,7 @@ erDiagram
         int age "nullable; years"
         decimal height_cm "NUMERIC(5,2); nullable"
         decimal weight_kg "NUMERIC(10,6); nullable; canonical kg"
-        varchar weight_unit "VARCHAR(2); nullable; explicitly kg/lb"
+        varchar measurement_system "VARCHAR(8); nullable; metric/imperial"
         text picture_url "nullable; owned endpoint or legacy HTTPS"
         text picture_blob_name "nullable; private storage reference"
         timestamptz created_at "required"

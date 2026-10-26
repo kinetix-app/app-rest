@@ -77,7 +77,7 @@ async def read_account(session: AsyncSession, user_id: int) -> AccountResponse:
         and profile.display_name.strip()
         and all(
             getattr(profile, field) is not None
-            for field in ("age", "height_cm", "weight_kg", "weight_unit")
+            for field in ("age", "height_cm", "weight_kg", "measurement_system")
         )
     )
     objective_selected = await session.get(AccountObjective, user_id) is not None

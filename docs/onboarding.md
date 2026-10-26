@@ -5,18 +5,22 @@ profile and derived `onboarding` state. First authenticated access provisions on
 minimal account. Existing users with incomplete profiles also receive `required: true`.
 
 The profile is complete when `display_name`, `age`, `height_cm`, `weight_kg` and
-`weight_unit` are present. A picture and timezone are optional. Completion also requires
+`measurement_system` are present. A picture and timezone are optional. Completion also requires
 an objective selected through `PUT /api/v1/me/objective`. Numerical nutrition targets
 are independent and never gate completion or food logging.
 
 `PATCH /api/v1/me/profile` preserves omitted fields; explicit null clears a field.
 Names are trimmed and must contain 1–100 characters. Age is an integer from 1–120.
-Height is centimetres, positive through 300 with at most two decimal places. Body mass
-is canonical kilograms, positive through 1000 with at most six decimal places. The
-unit preference must explicitly be `kg` or `lb`; it has no default. Clients convert
-pounds using exactly 0.45359237 kilograms per pound and round canonical kilograms to
-six places using round-half-up. The server stores the supplied canonical mass without
-inferring it from the preference. Clearing a required field makes setup required again.
+Height is canonical centimetres, positive through 300 with at most two decimal places.
+Body mass is canonical kilograms, positive through 1000 with at most six decimal places.
+The measurement preference must explicitly be `metric` or `imperial`; it has no default.
+Clients show metric measurements in centimetres and kilograms, or imperial measurements
+in feet/inches and pounds, rounded to two decimal places. Clients convert inches using
+exactly 2.54 centimetres per inch and pounds using exactly 0.45359237 kilograms per pound;
+they round canonical centimetres to two places and kilograms to six places using
+round-half-up before sending them. The server stores the supplied canonical measurements
+without inferring or converting them from the preference. Clearing a required field makes
+setup required again.
 These bounds validate representation; they are not health recommendations.
 
 `POST /api/v1/me/profile/picture` accepts an authenticated multipart request with one
@@ -44,6 +48,11 @@ additional health field is collected for automatic calculations.
 Revision `20261025_05` adds the nullable hidden `picture_blob_name`; it preserves existing
 profile fields and legacy URLs. Downgrade clears uploaded endpoint URLs and loses their
 references, but preserves legacy HTTPS references; it does not delete Azure objects.
+
+Revision `20261025_06` renames `weight_unit` to `measurement_system` and widens the nullable
+column. Existing `kg` and `lb` choices become `metric` and `imperial`; null stays null.
+Height and weight values are untouched. Downgrade restores the original column name and
+choice values.
 
 `GET /api/v1/me/objective` returns `{ "objective": null }` when none is selected.
 `PUT` accepts exactly one `objective`: `build_muscle`, `lose_fat`, `gain_weight` or

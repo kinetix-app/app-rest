@@ -15,7 +15,7 @@ class ProfilePatch(BaseModel):
     age: int | None = Field(default=None, ge=1, le=120, strict=True)
     height_cm: Decimal | None = Field(default=None, gt=0, le=300, decimal_places=2)
     weight_kg: Decimal | None = Field(default=None, gt=0, le=1000, decimal_places=6)
-    weight_unit: Literal["kg", "lb"] | None = None
+    measurement_system: Literal["metric", "imperial"] | None = None
     picture_url: str | None = Field(default=None, max_length=2048)
 
     @field_validator("picture_url")
@@ -47,7 +47,7 @@ class ProfileResponse(BaseModel):
     age: int | None
     height_cm: Decimal | None
     weight_kg: Decimal | None
-    weight_unit: Literal["kg", "lb"] | None
+    measurement_system: Literal["metric", "imperial"] | None
     picture_url: str | None
     updated_at: datetime
 

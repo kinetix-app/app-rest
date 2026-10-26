@@ -368,7 +368,10 @@ async def test_onboarding_upgrade_preserves_legacy_profile_and_leaves_setup_expl
                 assert saved[len(before) :] == (None, None, None, None, None, None)
                 assert await connection.scalar(text("SELECT count(*) FROM account_objective")) == 0
                 await connection.execute(
-                    text("UPDATE profiles SET age=30,height_cm=170,weight_kg=60,weight_unit='kg'")
+                    text(
+                        "UPDATE profiles SET age=30,height_cm=170,weight_kg=60,"
+                        "measurement_system='metric'"
+                    )
                 )
                 await connection.execute(
                     text("INSERT INTO account_objective (user_id,objective) VALUES (1,'lose_fat')")
@@ -408,7 +411,7 @@ async def test_private_picture_migration_preserves_legacy_and_clears_removed_ref
                 before = (
                     await connection.execute(text("SELECT * FROM profiles ORDER BY user_id"))
                 ).all()
-                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                await connection.run_sync(lambda conn: migrate(conn, "20261025_05"))
                 upgraded = (
                     await connection.execute(text("SELECT * FROM profiles ORDER BY user_id"))
                 ).all()
@@ -434,6 +437,58 @@ async def test_private_picture_migration_preserves_legacy_and_clears_removed_ref
                     ("Uploaded later", 30, "lb", None),
                     ("Legacy", 40, "kg", "https://example.test/legacy.jpg"),
                 ]
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_measurement_system_migration_preserves_values_and_is_reversible(integration_url):
+    engine = create_async_engine(integration_url)
+    schema = "migration_" + uuid4().hex
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(lambda conn: migrate(conn, "20261025_05"))
+                for user_id, unit in enumerate(("kg", "lb", None), start=1):
+                    await connection.execute(text("INSERT INTO users DEFAULT VALUES"))
+                    await connection.execute(
+                        text(
+                            "INSERT INTO profiles (user_id,display_name,age,height_cm,"
+                            "weight_kg,weight_unit,picture_url) "
+                            "VALUES (:id,'Preserved',30,170.82,68.038855,:unit,'https://example.test/photo.jpg')"
+                        ),
+                        {"id": user_id, "unit": unit},
+                    )
+                before = (
+                    (await connection.execute(text("SELECT * FROM profiles ORDER BY user_id")))
+                    .mappings()
+                    .all()
+                )
+                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                after = (
+                    (await connection.execute(text("SELECT * FROM profiles ORDER BY user_id")))
+                    .mappings()
+                    .all()
+                )
+                for original, saved, system in zip(
+                    before, after, ("metric", "imperial", None), strict=True
+                ):
+                    expected = dict(original)
+                    expected.pop("weight_unit")
+                    expected["measurement_system"] = system
+                    assert dict(saved) == expected
+                await connection.run_sync(lambda conn: migrate(conn, "20261025_05", downgrade=True))
+                restored = (
+                    (await connection.execute(text("SELECT * FROM profiles ORDER BY user_id")))
+                    .mappings()
+                    .all()
+                )
+                assert [dict(row) for row in restored] == [dict(row) for row in before]
             finally:
                 await transaction.rollback()
     finally:
