@@ -1,10 +1,13 @@
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.features.accounts.models import User
+from app.features.goals.models import AccountObjective
 from app.features.nutrition.errors import (
     FoodInUseError,
     FoodNotFoundError,
     MealItemNotFoundError,
+    NutritionGoalExistsError,
     NutritionGoalNotFoundError,
     RecipeInUseError,
     RecipeNotFoundError,
@@ -532,9 +535,17 @@ async def get_nutrition_goal(
 
 async def create_nutrition_goal(db: AsyncSession, user_id: int, data: NutritionGoalInput):
     try:
+        await db.scalar(select(User).where(User.id == user_id).with_for_update())
+        if await get_nutrition_goal(db, user_id) is not None:
+            raise NutritionGoalExistsError
+        objective = await db.get(AccountObjective, user_id)
         result = await db.execute(
             insert(nutrition_goal)
-            .values(user_id=user_id, **data.model_dump())
+            .values(
+                user_id=user_id,
+                objective=objective.objective if objective else None,
+                **data.model_dump(),
+            )
             .returning(nutrition_goal)
         )
         await db.commit()
@@ -546,10 +557,12 @@ async def create_nutrition_goal(db: AsyncSession, user_id: int, data: NutritionG
 
 async def update_nutrition_goal(db: AsyncSession, user_id: int, data: NutritionGoalInput):
     try:
+        await db.scalar(select(User).where(User.id == user_id).with_for_update())
+        objective = await db.get(AccountObjective, user_id)
         result = await db.execute(
             update(nutrition_goal)
             .where(nutrition_goal.c.user_id == user_id)
-            .values(**data.model_dump())
+            .values(objective=objective.objective if objective else None, **data.model_dump())
             .returning(nutrition_goal)
         )
         await db.commit()

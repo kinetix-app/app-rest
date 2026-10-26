@@ -318,3 +318,322 @@ async def test_mapping_failure_rolls_back_user_and_profile(
     async with app.state.session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(User)) == before
         assert await session.scalar(select(func.count()).select_from(Profile)) == profiles_before
+
+
+@pytest.mark.anyio
+async def test_onboarding_profile_objective_persistence_and_clearing(account_client, signed_token):
+    client, app, issuer = account_client
+    alice = headers(signed_token, issuer)
+    bob = headers(signed_token, issuer, sub="user_bob", sid="sess_bob")
+    first = await client.get("/api/v1/auth/me", headers=alice)
+    assert first.status_code == 200
+    assert first.json()["onboarding"] == {
+        "profile_complete": False,
+        "objective_selected": False,
+        "required": True,
+    }
+    assert (await client.get("/api/v1/me/objective", headers=alice)).json() == {"objective": None}
+    profile = {
+        "display_name": " Alice ",
+        "age": 30,
+        "height_cm": "170.25",
+        "weight_kg": "68.038855",
+        "picture_url": "",
+    }
+    partial = await client.patch("/api/v1/me/profile", headers=alice, json=profile)
+    assert partial.status_code == 200
+    assert partial.json()["profile"]["measurement_system"] is None
+    assert partial.json()["onboarding"]["profile_complete"] is False
+    complete = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"measurement_system": "imperial"}
+    )
+    assert complete.json()["profile"]["weight_kg"] == "68.038855"
+    assert complete.json()["profile"]["height_cm"] == "170.25"
+    assert complete.json()["profile"]["measurement_system"] == "imperial"
+    assert complete.json()["profile"]["display_name"] == "Alice"
+    assert complete.json()["profile"]["picture_url"] is None
+    assert complete.json()["onboarding"]["profile_complete"] is True
+    assert complete.json()["onboarding"]["required"] is True
+    for objective in ("build_muscle", "lose_fat", "gain_weight", "maintain_weight"):
+        response = await client.put(
+            "/api/v1/me/objective", headers=alice, json={"objective": objective}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"objective": objective}
+        assert (await client.get("/api/v1/auth/me", headers=alice)).json()["onboarding"] == {
+            "profile_complete": True,
+            "objective_selected": True,
+            "required": False,
+        }
+    other = await client.get("/api/v1/auth/me", headers=bob)
+    assert other.json()["profile"]["age"] is None
+    assert other.json()["onboarding"]["required"] is True
+    assert (await client.get("/api/v1/me/objective", headers=bob)).json() == {"objective": None}
+    restarted = create_app(app.state.settings)
+    async with LifespanManager(restarted):
+        restarted.state.clerk_verifier = app.state.clerk_verifier
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=restarted), base_url="http://test"
+        ) as fresh:
+            saved = await fresh.get("/api/v1/auth/me", headers=alice)
+            assert saved.json()["onboarding"]["required"] is False
+            assert saved.json()["profile"]["height_cm"] == "170.25"
+            assert saved.json()["profile"]["measurement_system"] == "imperial"
+            assert (await fresh.get("/api/v1/me/objective", headers=alice)).json() == {
+                "objective": "maintain_weight"
+            }
+    switched = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"measurement_system": "metric"}
+    )
+    assert switched.json()["profile"]["measurement_system"] == "metric"
+    assert switched.json()["profile"]["height_cm"] == "170.25"
+    assert switched.json()["profile"]["weight_kg"] == "68.038855"
+    cleared = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"measurement_system": None}
+    )
+    assert cleared.json()["onboarding"] == {
+        "profile_complete": False,
+        "objective_selected": True,
+        "required": True,
+    }
+    assert cleared.json()["profile"]["age"] == 30
+    assert (
+        await client.patch("/api/v1/me/profile", headers=alice, json={})
+    ).json() == cleared.json()
+
+
+@pytest.mark.anyio
+async def test_setup_rejects_invalid_fields_and_client_ownership(account_client, signed_token):
+    client, app, issuer = account_client
+    alice = headers(signed_token, issuer)
+    for changes in (
+        {"age": 0},
+        {"age": 121},
+        {"age": 30.5},
+        {"age": True},
+        {"height_cm": 0},
+        {"height_cm": 301},
+        {"height_cm": "170.251"},
+        {"weight_kg": 0},
+        {"weight_kg": 1001},
+        {"weight_kg": "1.0000001"},
+        {"weight_kg": "NaN"},
+        {"measurement_system": "stone"},
+        {"measurement_system": "kg"},
+        {"weight_unit": "lb"},
+        {"picture_url": "http://example.test/a.png"},
+        {"picture_url": "data:image/png;base64,a"},
+        {"picture_url": "https://user:secret@example.test/a.png"},
+        {"display_name": " "},
+        {"user_id": 123},
+    ):
+        assert (
+            await client.patch("/api/v1/me/profile", headers=alice, json=changes)
+        ).status_code == 422
+    for value in (
+        {},
+        {"objective": None},
+        {"objective": "bulk"},
+        {"objective": "lose_fat", "user_id": 1},
+    ):
+        assert (
+            await client.put("/api/v1/me/objective", headers=alice, json=value)
+        ).status_code == 422
+    good = await client.patch(
+        "/api/v1/me/profile", headers=alice, json={"picture_url": "https://example.test/avatar.png"}
+    )
+    assert good.status_code == 200
+    assert good.json()["profile"]["picture_url"] == "https://example.test/avatar.png"
+    assert (await client.get("/api/v1/auth/me")).status_code == 401
+    assert (await client.get("/api/v1/me/objective")).status_code == 401
+    user_id = good.json()["id"]
+    async with app.state.session_factory() as session:
+        await session.execute(update(User).where(User.id == user_id).values(status="blocked"))
+        await session.commit()
+    assert (
+        await client.put("/api/v1/me/objective", headers=alice, json={"objective": "lose_fat"})
+    ).status_code == 403
+
+
+@pytest.mark.anyio
+async def test_profile_and_objective_failures_roll_back(account_client, signed_token, monkeypatch):
+    from app.features.goals.models import AccountObjective
+
+    client, app, issuer = account_client
+    alice = headers(signed_token, issuer)
+    first = await client.get("/api/v1/auth/me", headers=alice)
+    user_id = first.json()["id"]
+    original = AsyncSession.commit
+
+    async def fail_setup_commit(session):
+        if any(
+            isinstance(row, (Profile, AccountObjective)) for row in [*session.new, *session.dirty]
+        ):
+            await session.flush()
+            raise RuntimeError("synthetic setup persistence failure")
+        # Profile service explicitly flushes before commit, so identify its transaction too.
+        profile = session.identity_map.get((Profile, (user_id,), None))
+        if profile is not None and profile.display_name == "Uncommitted":
+            raise RuntimeError("synthetic setup persistence failure")
+        await original(session)
+
+    monkeypatch.setattr(AsyncSession, "commit", fail_setup_commit)
+    with pytest.raises(RuntimeError, match="synthetic setup persistence failure"):
+        await client.put("/api/v1/me/objective", headers=alice, json={"objective": "build_muscle"})
+    with pytest.raises(RuntimeError, match="synthetic setup persistence failure"):
+        await client.patch(
+            "/api/v1/me/profile", headers=alice, json={"display_name": "Uncommitted"}
+        )
+    monkeypatch.setattr(AsyncSession, "commit", original)
+    assert (await client.get("/api/v1/me/objective", headers=alice)).json() == {"objective": None}
+    saved = await client.get("/api/v1/auth/me", headers=alice)
+    assert saved.json()["profile"]["display_name"] is None
+    assert saved.json()["onboarding"]["required"] is True
+
+
+@pytest.mark.anyio
+async def test_private_picture_upload_isolation_replacement_and_failure(
+    account_client, signed_token, monkeypatch
+):
+    import os
+    from io import BytesIO
+
+    from azure.core.exceptions import ResourceNotFoundError
+    from PIL import Image
+
+    from app.core.storage.azure import BlobStorage
+    from app.features.accounts import pictures
+
+    client, app, issuer = account_client
+    url = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_URL")
+    key = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_KEY")
+    account = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_NAME")
+    if not all((url, key, account)):
+        pytest.skip("Set explicit TEST_AZURE_STORAGE_ACCOUNT_NAME/URL/KEY for Azurite integration")
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        postgres_password=SecretStr("unused"),
+        azure_storage_account_name=account,
+        azure_storage_account_url=url,
+        azure_storage_account_key=SecretStr(key),
+        azure_storage_media_base_url=url,
+        azure_storage_container="test-exercises-" + uuid4().hex,
+        azure_storage_profile_container="test-profiles-" + uuid4().hex,
+        azure_storage_local_public_read=True,
+    )
+    storage = BlobStorage(settings)
+    app.state.blob_storage = storage
+    container = storage.client.get_container_client(settings.azure_storage_profile_container)
+    alice = headers(signed_token, issuer)
+    bob = headers(signed_token, issuer, sub="user_bob", sid="sess_bob")
+    route = "/api/v1/me/profile/picture"
+
+    def image(color="red"):
+        output = BytesIO()
+        exif = Image.Exif()
+        exif[270] = "Private location metadata"
+        Image.new("RGB", (80, 80), color).save(output, format="PNG", exif=exif)
+        return output.getvalue()
+
+    async def upload(data=None, mime="image/png"):
+        return await client.post(
+            route, headers=alice, files={"file": ("photo.png", data or image(), mime)}
+        )
+
+    try:
+        assert (
+            await client.post(route, files={"file": ("photo.png", image(), "image/png")})
+        ).status_code == 401
+        created = await upload()
+        assert created.status_code == 200
+        assert created.json()["profile"]["picture_url"] == route
+        assert "picture_blob_name" not in created.json()["profile"]
+        assert created.json()["onboarding"]["required"] is True
+        first_blob = [blob async for blob in container.list_blobs()][0].name
+        assert not (await container.get_container_properties()).public_access
+        async with httpx.AsyncClient() as anonymous:
+            assert (await anonymous.get(f"{container.url}/{first_blob}")).status_code in (403, 404)
+        fetched = await client.get(route, headers=alice)
+        assert fetched.status_code == 200
+        assert fetched.headers["content-type"] == "image/jpeg"
+        assert fetched.headers["cache-control"] == "private, no-store"
+        with Image.open(BytesIO(fetched.content)) as decoded:
+            assert not decoded.getexif()
+        assert (await client.get(route)).status_code == 401
+        assert (await client.get(route, headers=bob)).status_code == 404
+        assert (await client.delete(route, headers=bob)).status_code == 200
+        assert (await client.get(route, headers=alice)).content == fetched.content
+        # Saving remaining profile fields must preserve the uploaded photo.
+        patched = await client.patch(
+            "/api/v1/me/profile", headers=alice, json={"display_name": "Photo owner"}
+        )
+        assert patched.json()["profile"]["picture_url"] == route
+        assert (await upload(b"broken")).status_code == 422
+        assert (await upload(image(), "text/plain")).status_code == 415
+        assert (await upload(image(), "image/jpeg")).status_code == 415
+        assert (await upload(b"a" * (5 * 1024 * 1024 + 1))).status_code == 413
+        assert (await client.get(route, headers=alice)).content == fetched.content
+        # Provider failure cannot overwrite the old reference.
+        original_upload = storage.upload_profile_picture
+
+        async def unavailable(*args):
+            raise TimeoutError
+
+        monkeypatch.setattr(storage, "upload_profile_picture", unavailable)
+        assert (await upload()).status_code == 503
+        monkeypatch.setattr(storage, "upload_profile_picture", original_upload)
+        assert (await client.get(route, headers=alice)).content == fetched.content
+        # Persistence rollback deletes only the newly uploaded object.
+        original_read = pictures.read_account
+
+        async def failed_response(*args):
+            raise RuntimeError("Synthetic photo persistence failure")
+
+        monkeypatch.setattr(pictures, "read_account", failed_response)
+        replacement_picture = image("blue")
+        with pytest.raises(RuntimeError, match="Synthetic photo persistence failure"):
+            await upload(replacement_picture)
+        monkeypatch.setattr(pictures, "read_account", original_read)
+        assert [blob.name async for blob in container.list_blobs()] == [first_blob]
+        assert (await client.get(route, headers=alice)).content == fetched.content
+        replaced = await upload(image("blue"))
+        assert replaced.status_code == 200
+        assert (await client.get(route, headers=alice)).content != fetched.content
+        first_blob_client = container.get_blob_client(first_blob)
+        with pytest.raises(ResourceNotFoundError):
+            await first_blob_client.get_blob_properties()
+        # Reopen from a new app/pool to verify DB and Azure persistence.
+        restarted = create_app(app.state.settings)
+        async with LifespanManager(restarted):
+            restarted.state.clerk_verifier = app.state.clerk_verifier
+            restarted.state.blob_storage = storage
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=restarted), base_url="http://test"
+            ) as fresh:
+                assert (await fresh.get(route, headers=alice)).status_code == 200
+            restarted.state.blob_storage = None
+        for _ in range(2):
+            removed = await client.delete(route, headers=alice)
+            assert removed.status_code == 200
+            assert removed.json()["profile"]["picture_url"] is None
+            assert removed.json()["profile"]["display_name"] == "Photo owner"
+        assert (await client.get(route, headers=alice)).status_code == 404
+        assert [blob async for blob in container.list_blobs()] == []
+        await upload()
+        legacy = await client.patch(
+            "/api/v1/me/profile",
+            headers=alice,
+            json={"picture_url": "https://example.test/legacy.jpg"},
+        )
+        assert legacy.status_code == 200
+        assert (await client.get(route, headers=alice)).status_code == 404
+        assert [blob async for blob in container.list_blobs()] == []
+        assert (await client.delete(route, headers=alice)).json()["profile"]["picture_url"] is None
+        # Existing public containers cannot be reused for private profile images.
+        await container.set_container_access_policy(signed_identifiers={}, public_access="blob")
+        assert (await upload()).status_code == 503
+    finally:
+        await container.delete_container()
+        app.state.blob_storage = None
+        await storage.close()

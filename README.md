@@ -1,5 +1,7 @@
 # Kinetix backend
 
+The [onboarding contract](docs/onboarding.md) separates a complete profile and selected objective from an optional manual nutrition target.
+
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.
 
 The foundation includes an application factory, typed configuration, SQLAlchemy resources, Alembic tooling, health endpoints, request logging, Compose services, Azure Blob Storage resources, an exercise/media seed command, a packaged Docker image and tests. The account feature adds Clerk session validation, local user/identity/profile tables, and protected account APIs. Nutrition, training and goal tables are initialized from `db-schema.sql`. The training API supports owned routine creation, reading and editing, plus exercise catalogue browsing. Nutrition provides personal food create/read/update/delete operations. Training adds atomic completed-workout submission and private history; meal logging and goal APIs remain backlog work.
@@ -450,6 +452,7 @@ Copy the storage block from `.env.example` into an existing local `.env`. Azurit
 | `AZURE_STORAGE_ACCOUNT_URL` | Backend account root; host example `http://127.0.0.1:10000/kinetixlocal` |
 | `AZURE_STORAGE_ACCOUNT_KEY` | Backend-only shared account key; never expose a real Azure key to clients |
 | `AZURE_STORAGE_CONTAINER` | Blob container name, default `exercises` |
+| `AZURE_STORAGE_PROFILE_CONTAINER` | Separate private profile image container, default `profile-pictures`; never receives public-read mode |
 | `AZURE_STORAGE_MEDIA_BASE_URL` | Client-reachable account/CDN root, without container, credentials, query or SAS; used to build stored media URLs |
 | `AZURE_STORAGE_LOCAL_PUBLIC_READ` | Default false; `.env.example` enables blob-only anonymous reads for local demonstration; forbidden in production |
 | `AZURE_STORAGE_TIMEOUT_SECONDS` | Per-upload/container operation timeout, default 30 seconds; readiness uses `DATABASE_TIMEOUT_SECONDS` |

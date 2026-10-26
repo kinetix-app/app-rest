@@ -3,8 +3,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.types import VerifiedIdentity
+from app.core.storage.azure import BlobStorage
 from app.features.accounts.models import AuthAccount, Profile, User
-from app.features.accounts.schemas import AccountResponse, ProfilePatch, ProfileResponse
+from app.features.accounts.schemas import (
+    AccountResponse,
+    OnboardingResponse,
+    ProfilePatch,
+    ProfileResponse,
+)
+from app.features.goals.models import AccountObjective
 
 
 class AccountDenied(Exception):
@@ -65,16 +72,30 @@ async def read_account(session: AsyncSession, user_id: int) -> AccountResponse:
     profile = await session.get(Profile, user_id)
     if profile is None:
         raise RuntimeError("Account profile is missing")
+    profile_complete = bool(
+        profile.display_name
+        and profile.display_name.strip()
+        and all(
+            getattr(profile, field) is not None
+            for field in ("age", "height_cm", "weight_kg", "measurement_system")
+        )
+    )
+    objective_selected = await session.get(AccountObjective, user_id) is not None
     return AccountResponse(
         id=user.id,
         status=user.status,
         created_at=user.created_at,
         profile=ProfileResponse.model_validate(profile),
+        onboarding=OnboardingResponse(
+            profile_complete=profile_complete,
+            objective_selected=objective_selected,
+            required=not (profile_complete and objective_selected),
+        ),
     )
 
 
 async def update_profile(
-    session: AsyncSession, user_id: int, changes: ProfilePatch
+    session: AsyncSession, user_id: int, changes: ProfilePatch, storage: BlobStorage | None = None
 ) -> AccountResponse:
     try:
         user = await session.scalar(select(User).where(User.id == user_id).with_for_update())
@@ -84,12 +105,19 @@ async def update_profile(
         profile = await session.get(Profile, user_id)
         if profile is None:
             raise RuntimeError("Account profile is missing")
+        previous_picture = None
+        if "picture_url" in changes.model_fields_set:
+            previous_picture = profile.picture_blob_name
+            profile.picture_blob_name = None
         for name, value in changes.model_dump(exclude_unset=True).items():
             setattr(profile, name, value)
         await session.flush()
         await session.refresh(profile)
         response = await read_account(session, user_id)
         await session.commit()
+        from app.features.accounts.pictures import cleanup_picture
+
+        await cleanup_picture(storage, previous_picture, user_id)
         return response
     except Exception:
         await session.rollback()
