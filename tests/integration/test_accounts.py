@@ -117,7 +117,8 @@ async def test_development_basic_auth_provisions_account_over_me_endpoint(basic_
     assert response.status_code == 200
     assert response.json()["status"] == "active"
     account_id = response.json()["id"]
-    assert isinstance(account_id, int) and account_id > 0
+    assert isinstance(account_id, int)
+    assert account_id > 0
     auth = {"Authorization": f"Basic {token}"}
     updated = await client.patch(
         "/api/v1/me/profile", headers=auth, json={"display_name": "Basic test user"}

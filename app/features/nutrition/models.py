@@ -4,11 +4,13 @@ import sqlalchemy as sa
 
 from app.db.base import Base
 
+USER_ID_FOREIGN_KEY = "users.id"
+
 food = sa.Table(
     "food",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=True),
     sa.Column("name", sa.String(150), nullable=False),
     sa.Column("brand", sa.String(100), nullable=True),
     sa.Column("calories", sa.Numeric(8, 2), nullable=False),
@@ -22,7 +24,7 @@ recipe = sa.Table(
     "recipe",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=True),
     sa.Column("name", sa.String(150), nullable=False),
     sa.Column("description", sa.Text(), nullable=True),
     sa.Column("instructions", sa.Text(), nullable=True),
@@ -42,7 +44,7 @@ nutrition_day = sa.Table(
     "nutrition_day",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=False),
     sa.Column("date", sa.Date(), nullable=False),
 )
 
@@ -76,7 +78,13 @@ nutrition_goal = sa.Table(
     "nutrition_goal",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False, unique=True),
+    sa.Column(
+        "user_id",
+        sa.BigInteger(),
+        sa.ForeignKey(USER_ID_FOREIGN_KEY),
+        nullable=False,
+        unique=True,
+    ),
     sa.Column(
         "objective",
         sa.String(50),

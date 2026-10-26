@@ -179,9 +179,11 @@ async def test_catalogue_filter_pagination_details_and_permissions(training_api)
     page = await api.client.get("/api/v1/exercises?limit=2&offset=2", auth=api.alice)
     assert [row["id"] for row in page.json()["items"]] == api.catalogue[2:4]
     details = await api.client.get(f"/api/v1/exercises/{api.catalogue[0]}", auth=api.alice)
-    assert details.json()["instructions"] == ["Control the movement"]
-    assert details.json()["image_urls"]["480p"] == "https://media.example/image.jpg"
-    assert "user_id" not in details.json() and "external_id" not in details.json()
+    detail = details.json()
+    assert detail["instructions"] == ["Control the movement"]
+    assert detail["image_urls"]["480p"] == "https://media.example/image.jpg"
+    assert "user_id" not in detail
+    assert "external_id" not in detail
     for resource_id in (api.private, api.unowned, api.running, 999999):
         assert (
             await api.client.get(f"/api/v1/exercises/{resource_id}", auth=api.alice)
@@ -258,24 +260,26 @@ async def test_invalid_references_leave_no_partial_writes(training_api, monkeypa
     with monkeypatch.context() as patch:
         patch.setattr(service, "get_routine", fail)
         async with api.sessions() as session:
+            update = RoutinePatch(
+                name="Rollback",
+                exercises=[{"exercise_id": api.catalogue[7]}],
+            )
             with pytest.raises(RuntimeError):
                 await service.update_routine(
                     session,
                     api.alice_id,
                     saved["id"],
-                    RoutinePatch(
-                        name="Rollback",
-                        exercises=[{"exercise_id": api.catalogue[7]}],
-                    ),
+                    update,
                 )
+            create_data = RoutineCreate(
+                name="Rollback",
+                exercises=[{"exercise_id": api.catalogue[7]}],
+            )
             with pytest.raises(RuntimeError):
                 await service.create_routine(
                     session,
                     api.alice_id,
-                    RoutineCreate(
-                        name="Rollback",
-                        exercises=[{"exercise_id": api.catalogue[7]}],
-                    ),
+                    create_data,
                 )
     assert (await api.client.get(path, auth=api.alice)).json() == saved
     async with api.sessions() as session:
@@ -715,7 +719,8 @@ async def test_complete_blank_workout_units_history_isolation_and_retry(training
     )
     assert response.status_code == 201, response.text
     saved = response.json()
-    assert saved["state"] == "completed" and saved["routine_id"] is None
+    assert saved["state"] == "completed"
+    assert saved["routine_id"] is None
     actual = saved["exercises"][0]["sets"][0]
     assert actual["weight_kg"] == "45.359237"
     assert actual["weight"] == {"value": "100.00", "unit": "lb"}
@@ -727,7 +732,8 @@ async def test_complete_blank_workout_units_history_isolation_and_retry(training
         repeated = await api.client.post(
             "/api/v1/sessions?weight_unit=lb", auth=api.alice, json=payload
         )
-        assert repeated.status_code == 200 and repeated.json() == saved
+        assert repeated.status_code == 200
+        assert repeated.json() == saved
     changed = {**payload, "ended_at": "2026-10-24T17:00:00Z"}
     assert (
         await api.client.post("/api/v1/sessions", auth=api.alice, json=changed)
@@ -751,7 +757,8 @@ async def test_complete_blank_workout_units_history_isolation_and_retry(training
     second = await api.client.post(
         "/api/v1/sessions", auth=api.alice, json={**payload, "client_session_id": str(uuid4())}
     )
-    assert second.status_code == 201 and second.json()["id"] != saved["id"]
+    assert second.status_code == 201
+    assert second.json()["id"] != saved["id"]
     history = (await api.client.get("/api/v1/sessions?limit=1&offset=1", auth=api.alice)).json()
     assert history["items"][0]["id"] == saved["id"]
     async with api.sessions() as session:
@@ -883,11 +890,10 @@ async def test_completed_database_failure_rolls_back_full_aggregate(training_api
         raise RuntimeError("injected response/database failure")
 
     monkeypatch.setattr(service, "get_session", failed)
+    session_input = SessionCreate.model_validate(completed_payload(api))
     async with api.sessions() as session:
         with pytest.raises(RuntimeError):
-            await service.create_session(
-                session, api.alice_id, SessionCreate.model_validate(completed_payload(api))
-            )
+            await service.create_session(session, api.alice_id, session_input)
     async with api.sessions() as session:
         for table in (training_session, session_exercise, exercise_set):
             assert await session.scalar(sa.select(sa.func.count()).select_from(table)) == 0
@@ -1130,7 +1136,8 @@ async def test_blank_finish_and_empty_routine_update_validation(training_api):
     ).status_code == 422
     assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json() is not None
     result = await api.client.post(path + "/finish", auth=api.alice, json=finish)
-    assert result.status_code == 200 and result.json()["exercises"] == []
+    assert result.status_code == 200
+    assert result.json()["exercises"] == []
     assert result.json()["routine_id"] == template["id"]
     assert (
         await api.client.get(f"/api/v1/routines/{template['id']}", auth=api.alice)
@@ -1214,19 +1221,12 @@ async def test_finish_routine_update_failure_rolls_back_workout_and_template(
         raise RuntimeError("injected post-update failure")
 
     monkeypatch.setattr(drafts, "replace_routine_from_session", fail_after_update)
+    finish_data = DraftFinish.model_validate(
+        {"ended_at": "2026-10-25T10:10:00Z", "update_routine": True}
+    )
     async with api.sessions() as session:
         with pytest.raises(RuntimeError, match="injected post-update"):
-            await drafts.finish_draft(
-                session,
-                api.alice_id,
-                key,
-                DraftFinish.model_validate(
-                    {
-                        "ended_at": "2026-10-25T10:10:00Z",
-                        "update_routine": True,
-                    }
-                ),
-            )
+            await drafts.finish_draft(session, api.alice_id, key, finish_data)
     async with api.sessions() as session:
         assert await session.scalar(sa.select(sa.func.count()).select_from(training_session)) == 0
         assert await session.scalar(sa.select(session_draft.c.completed_session_id)) is None
