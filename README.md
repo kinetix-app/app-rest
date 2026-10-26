@@ -558,3 +558,7 @@ pre-migration fingerprint retry compatibility, and never persists a slot associa
 Active API schemas and responses omit slot references. Downgrading `20261025_02` cannot
 reconstruct removed links; downgrading `20261025_01` removes snapshots/retry pointers but
 keeps completed workouts. Browser/native acceptance is verified separately.
+
+## OWASP ZAP security assessment
+
+The [26 October 2026 assessment](docs/security/owasp-zap-2026-10-26/README.md) documents the employed method, findings and unresolved status, sanitized scan evidence, and presentation/document text. It covers local public surfaces and an authenticated passive API follow-up; delivery-version confirmation and team review remain pending.

@@ -1,0 +1,19 @@
+{
+  "assessed_at_utc": "2026-10-26T21:56:42.165824+00:00",
+  "method": "Authenticated passive scan of explicit GET requests sent through ZAP proxy; no spider or active scanner",
+  "target": "http://host.docker.internal:8002",
+  "scanner_image": "ghcr.io/zaproxy/zaproxy@sha256:030d3df57735dacbb83464854758e674dd9ad01d79d12a129a8e58b1fd384238",
+  "version": "2.17.0",
+  "configuration": "Temporary development API process with AUTH_MODE=basic; other settings loaded from existing .env; existing port-8000 Clerk process left unchanged",
+  "credential_source": "Existing active development Basic accounts in ignored backend .env; values excluded from artifacts",
+  "repositories": {
+    "backend": {
+      "head": "03183b5f42b3f8645231e55221a6e6206309d7ba",
+      "dirty": true
+    },
+    "frontend": {
+      "head": "86d9629d5f9ba2e2138af443cd07fccbb61b3dac",
+      "dirty": true
+    }
+  }
+}
