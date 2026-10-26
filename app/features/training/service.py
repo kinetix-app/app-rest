@@ -260,6 +260,66 @@ async def create_routine(
         raise
 
 
+async def _routine_exercise_rows(session: AsyncSession, routine_id: int) -> dict:
+    result = await session.execute(
+        sa.select(routine_exercise).where(routine_exercise.c.routine_id == routine_id)
+    )
+    return {row["id"]: row for row in result.mappings()}
+
+
+async def _delete_routine_exercises(session: AsyncSession, slot_ids: set[int]) -> None:
+    # Template rows are independent of performed exercise history.
+    await session.execute(
+        sa.delete(routine_exercise_set).where(
+            routine_exercise_set.c.routine_exercise_id.in_(slot_ids)
+        )
+    )
+    await session.execute(sa.delete(routine_exercise).where(routine_exercise.c.id.in_(slot_ids)))
+
+
+async def _upsert_routine_exercise(
+    session: AsyncSession,
+    routine_id: int,
+    existing: dict,
+    item: ExerciseSelection,
+    position: int,
+) -> None:
+    values = {"exercise_id": item.exercise_id, "exercise_order": position}
+    if item.id is None:
+        slot_id = await session.scalar(
+            routine_exercise.insert()
+            .values(routine_id=routine_id, **values)
+            .returning(routine_exercise.c.id)
+        )
+        await replace_sets(session, slot_id, item.sets or [])
+        return
+
+    if existing[item.id]["exercise_id"] != item.exercise_id:
+        await session.execute(
+            sa.delete(routine_exercise_set).where(
+                routine_exercise_set.c.routine_exercise_id == item.id
+            )
+        )
+    await session.execute(
+        sa.update(routine_exercise).where(routine_exercise.c.id == item.id).values(**values)
+    )
+    if item.sets is not None:
+        await replace_sets(session, item.id, item.sets)
+
+
+async def _replace_routine_exercises(
+    session: AsyncSession, user_id: int, routine_id: int, items: Sequence[ExerciseSelection]
+) -> None:
+    await validate_exercises(session, user_id, items)
+    existing = await _routine_exercise_rows(session, routine_id)
+    retained = {item.id for item in items if item.id is not None}
+    if not retained.issubset(existing):
+        raise InvalidSelection
+    await _delete_routine_exercises(session, existing.keys() - retained)
+    for position, item in enumerate(items, 1):
+        await _upsert_routine_exercise(session, routine_id, existing, item, position)
+
+
 async def update_routine(
     session: AsyncSession,
     user_id: int,
@@ -276,53 +336,7 @@ async def update_routine(
         if found is None:
             raise TrainingNotFound
         if data.exercises is not None:
-            await validate_exercises(session, user_id, data.exercises)
-            existing = {
-                row["id"]: row
-                for row in (
-                    await session.execute(
-                        sa.select(routine_exercise).where(
-                            routine_exercise.c.routine_id == routine_id
-                        )
-                    )
-                ).mappings()
-            }
-            retained = {item.id for item in data.exercises if item.id is not None}
-            if not retained.issubset(existing):
-                raise InvalidSelection
-            removed = existing.keys() - retained
-            # Template rows are independent of performed exercise history.
-            await session.execute(
-                sa.delete(routine_exercise_set).where(
-                    routine_exercise_set.c.routine_exercise_id.in_(removed)
-                )
-            )
-            await session.execute(
-                sa.delete(routine_exercise).where(routine_exercise.c.id.in_(removed))
-            )
-            for position, item in enumerate(data.exercises, 1):
-                values = {"exercise_id": item.exercise_id, "exercise_order": position}
-                if item.id is None:
-                    slot_id = await session.scalar(
-                        routine_exercise.insert()
-                        .values(routine_id=routine_id, **values)
-                        .returning(routine_exercise.c.id)
-                    )
-                    await replace_sets(session, slot_id, item.sets or [])
-                else:
-                    if existing[item.id]["exercise_id"] != item.exercise_id:
-                        await session.execute(
-                            sa.delete(routine_exercise_set).where(
-                                routine_exercise_set.c.routine_exercise_id == item.id
-                            )
-                        )
-                    await session.execute(
-                        sa.update(routine_exercise)
-                        .where(routine_exercise.c.id == item.id)
-                        .values(**values)
-                    )
-                    if item.sets is not None:
-                        await replace_sets(session, item.id, item.sets)
+            await _replace_routine_exercises(session, user_id, routine_id, data.exercises)
         if data.name is not None:
             await session.execute(
                 sa.update(routine).where(routine.c.id == routine_id).values(name=data.name)

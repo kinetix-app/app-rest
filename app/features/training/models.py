@@ -5,11 +5,13 @@ from sqlalchemy.dialects import postgresql
 
 from app.db.base import Base
 
+USER_ID_FOREIGN_KEY = "users.id"
+
 exercise = sa.Table(
     "exercise",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=True),
     sa.Column(
         "activity_type",
         sa.String(30),
@@ -74,7 +76,7 @@ routine = sa.Table(
     "routine",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=True),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=True),
     sa.Column("name", sa.String(150), nullable=False),
     sa.Column("description", sa.Text(), nullable=True),
     sa.Column(
@@ -110,7 +112,7 @@ training_session = sa.Table(
     "training_session",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=False),
     sa.Column("routine_id", sa.BigInteger(), sa.ForeignKey("routine.id"), nullable=True),
     sa.Column(
         "activity_type",
@@ -156,7 +158,7 @@ session_draft = sa.Table(
     "session_draft",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=False),
     sa.Column("client_session_id", postgresql.UUID(as_uuid=True), nullable=False),
     sa.Column("snapshot", postgresql.JSONB(), nullable=False),
     sa.Column("completed_session_id", sa.BigInteger(), sa.ForeignKey("training_session.id")),

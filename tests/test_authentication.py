@@ -58,8 +58,9 @@ async def test_valid_native_token_and_sdk_key_cache(auth_settings, clerk_jwks, s
 )
 async def test_invalid_claims_rejected(auth_settings, clerk_jwks, signed_token, overrides):
     verifier = ClerkVerifier(auth_settings)
+    token = signed_token(**overrides)
     with pytest.raises(InvalidCredentials):
-        await verifier.verify(signed_token(**overrides))
+        await verifier.verify(token)
 
 
 @pytest.mark.anyio
@@ -110,15 +111,19 @@ async def test_jwks_failure_denies_authentication(
     auth_settings, signed_token, clerk_jwks, response
 ):
     clerk_jwks.response = response
+    token = signed_token()
+    verifier = ClerkVerifier(auth_settings)
     with pytest.raises(AuthenticationUnavailable):
-        await ClerkVerifier(auth_settings).verify(signed_token())
+        await verifier.verify(token)
 
 
 @pytest.mark.anyio
 async def test_unknown_key_rejected(auth_settings, signed_token, clerk_jwks):
     clerk_jwks.response = httpx.Response(200, json={"keys": []})
+    token = signed_token()
+    verifier = ClerkVerifier(auth_settings)
     with pytest.raises(InvalidCredentials):
-        await ClerkVerifier(auth_settings).verify(signed_token())
+        await verifier.verify(token)
 
 
 @pytest.mark.anyio
@@ -127,8 +132,9 @@ async def test_audience_enforced(auth_settings, signed_token, clerk_jwks):
     verifier = ClerkVerifier(auth_settings)
     await verifier.verify(signed_token(aud="kinetix-api"))
     for audience in (None, "other-api"):
+        token = signed_token(aud=audience)
         with pytest.raises(InvalidCredentials):
-            await verifier.verify(signed_token(aud=audience))
+            await verifier.verify(token)
 
 
 @pytest.mark.anyio
@@ -169,8 +175,10 @@ def test_profile_patch_omission_and_null_are_distinct():
 @pytest.mark.anyio
 @pytest.mark.parametrize("claim", ["exp", "nbf", "iat"])
 async def test_invalid_time_claim_type_rejected(auth_settings, clerk_jwks, signed_token, claim):
+    token = signed_token(**{claim: {"invalid": 1}})
+    verifier = ClerkVerifier(auth_settings)
     with pytest.raises(InvalidCredentials):
-        await ClerkVerifier(auth_settings).verify(signed_token(**{claim: {"invalid": 1}}))
+        await verifier.verify(token)
 
 
 @pytest.mark.anyio
@@ -194,8 +202,10 @@ async def test_authentication_failure_does_not_access_database(
 @pytest.mark.anyio
 async def test_missing_secret_key_denies_authentication(auth_settings, signed_token):
     auth_settings.clerk_secret_key = None
+    token = signed_token()
+    verifier = ClerkVerifier(auth_settings)
     with pytest.raises(AuthenticationUnavailable):
-        await ClerkVerifier(auth_settings).verify(signed_token())
+        await verifier.verify(token)
 
 
 @pytest.mark.anyio
@@ -204,5 +214,7 @@ async def test_sdk_network_failure_denies_authentication(
     auth_settings, clerk_jwks, signed_token, error
 ):
     clerk_jwks.error = error
+    token = signed_token()
+    verifier = ClerkVerifier(auth_settings)
     with pytest.raises(AuthenticationUnavailable):
-        await ClerkVerifier(auth_settings).verify(signed_token())
+        await verifier.verify(token)

@@ -58,14 +58,16 @@ def test_invalid_credentials_are_rejected(basic_settings, header):
 
 def test_clerk_mode_never_uses_configured_development_credentials(basic_settings):
     basic_settings.auth_mode = "clerk"
+    header = authorization()
     with pytest.raises(InvalidCredentials):
-        verify_basic(authorization(), basic_settings)
+        verify_basic(header, basic_settings)
 
 
 def test_production_rejects_basic_even_if_settings_are_mutated(basic_settings):
     basic_settings.app_env = "production"
+    header = authorization()
     with pytest.raises(InvalidCredentials):
-        verify_basic(authorization(), basic_settings)
+        verify_basic(header, basic_settings)
 
 
 @pytest.mark.parametrize(
@@ -132,8 +134,9 @@ def test_auth_mode_defaults_follow_environment(environment):
 
 def test_unconfigured_basic_mode_accepts_no_accounts():
     settings = Settings(_env_file=None, postgres_password="test-only")
+    header = authorization()
     with pytest.raises(InvalidCredentials):
-        verify_basic(authorization(), settings)
+        verify_basic(header, settings)
 
 
 def test_empty_mode_and_database_url_use_defaults():

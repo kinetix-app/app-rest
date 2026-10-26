@@ -138,11 +138,12 @@ class BlobStorage:
                 )
             except ResourceExistsError:
                 properties = await self.container.get_blob_client(name).get_blob_properties()
-                if (
-                    properties.size != len(data)
-                    or properties.metadata.get("sha256") != digest
-                    or properties.content_settings.content_type != content_type
-                ):
+                matches_existing_blob = properties.size == len(data)
+                digest_matches = properties.metadata.get("sha256") == digest
+                type_matches = properties.content_settings.content_type == content_type
+                matches_existing_blob = matches_existing_blob and digest_matches
+                matches_existing_blob = matches_existing_blob and type_matches
+                if not matches_existing_blob:
                     raise ValueError(
                         "Existing seed blob differs from its content identity"
                     ) from None

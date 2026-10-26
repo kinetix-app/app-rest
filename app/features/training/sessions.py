@@ -176,6 +176,121 @@ async def validate_sources(
         raise InvalidSelection
 
 
+def _accepted_session_fingerprints(data: SessionCreate) -> set[str]:
+    payloads = (normalized_payload(data), normalized_payload(data, legacy=True))
+    return {
+        hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        for payload in payloads
+    }
+
+
+async def _lock_user_without_active_draft(
+    session: AsyncSession, user_id: int, client_session_id
+) -> None:
+    await session.execute(sa.select(User.id).where(User.id == user_id).with_for_update())
+    active_draft = await session.scalar(
+        sa.select(session_draft.c.id).where(
+            session_draft.c.user_id == user_id,
+            session_draft.c.client_session_id == client_session_id,
+            session_draft.c.completed_session_id.is_(None),
+        )
+    )
+    if active_draft:
+        raise IdempotencyConflict
+
+
+async def _find_session_by_client_id(session: AsyncSession, user_id: int, client_session_id):
+    result = await session.execute(
+        sa.select(training_session.c.id, training_session.c.payload_fingerprint).where(
+            training_session.c.user_id == user_id,
+            training_session.c.client_session_id == client_session_id,
+        )
+    )
+    return result.mappings().first()
+
+
+async def _completed_retry(
+    session: AsyncSession,
+    user_id: int,
+    existing,
+    accepted_fingerprints: set[str],
+    unit: WeightUnit,
+) -> SessionResponse:
+    if existing["payload_fingerprint"] not in accepted_fingerprints:
+        raise IdempotencyConflict
+    return await get_session(session, user_id, existing["id"], unit)
+
+
+async def _insert_session(
+    session: AsyncSession, user_id: int, data: SessionCreate, fingerprint: str
+) -> int | None:
+    return await session.scalar(
+        insert(training_session)
+        .values(
+            user_id=user_id,
+            routine_id=data.routine_id,
+            activity_type="gym",
+            client_session_id=data.client_session_id,
+            payload_fingerprint=fingerprint,
+            started_at=data.started_at,
+            ended_at=data.ended_at,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[training_session.c.user_id, training_session.c.client_session_id]
+        )
+        .returning(training_session.c.id)
+    )
+
+
+async def _insert_session_exercises(
+    session: AsyncSession, session_id: int, data: SessionCreate
+) -> None:
+    for position, item in enumerate(data.exercises, 1):
+        entry_id = await session.scalar(
+            session_exercise.insert()
+            .values(
+                session_id=session_id,
+                exercise_id=item.exercise_id,
+                exercise_order=position,
+            )
+            .returning(session_exercise.c.id)
+        )
+        if item.sets:
+            await session.execute(
+                exercise_set.insert(),
+                [
+                    {
+                        "session_exercise_id": entry_id,
+                        "set_number": number,
+                        "reps": value.reps,
+                        "weight_kg": canonical_weight(value.weight.value, value.weight.unit),
+                        "completed": True,
+                    }
+                    for number, value in enumerate(item.sets, 1)
+                ],
+            )
+
+
+async def _concurrent_session_id(
+    session: AsyncSession,
+    user_id: int,
+    data: SessionCreate,
+    accepted_fingerprints: set[str],
+) -> int:
+    result = await session.execute(
+        sa.select(training_session.c.id, training_session.c.payload_fingerprint).where(
+            training_session.c.user_id == user_id,
+            training_session.c.client_session_id == data.client_session_id,
+        )
+    )
+    existing = result.mappings().one()
+    if existing["payload_fingerprint"] not in accepted_fingerprints:
+        raise IdempotencyConflict
+    return existing["id"]
+
+
 async def create_session(
     session: AsyncSession,
     user_id: int,
@@ -184,111 +299,28 @@ async def create_session(
     *,
     commit: bool = True,
 ) -> tuple[SessionResponse, bool]:
-    normalized = normalized_payload(data)
+    accepted_fingerprints = _accepted_session_fingerprints(data)
     fingerprint = hashlib.sha256(
-        json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(normalized_payload(data), sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    legacy_fingerprint = hashlib.sha256(
-        json.dumps(
-            normalized_payload(data, legacy=True), sort_keys=True, separators=(",", ":")
-        ).encode()
-    ).hexdigest()
-    accepted_fingerprints = {fingerprint, legacy_fingerprint}
     try:
         if commit:
             # Legacy submission cannot bypass an active snapshot's finish transition.
-            await session.execute(sa.select(User.id).where(User.id == user_id).with_for_update())
-            if await session.scalar(
-                sa.select(session_draft.c.id).where(
-                    session_draft.c.user_id == user_id,
-                    session_draft.c.client_session_id == data.client_session_id,
-                    session_draft.c.completed_session_id.is_(None),
-                )
-            ):
-                raise IdempotencyConflict
+            await _lock_user_without_active_draft(session, user_id, data.client_session_id)
         # Check the key first: retries remain valid even after source templates/catalogue change.
-        existing = (
-            (
-                await session.execute(
-                    sa.select(training_session.c.id, training_session.c.payload_fingerprint).where(
-                        training_session.c.user_id == user_id,
-                        training_session.c.client_session_id == data.client_session_id,
-                    )
-                )
-            )
-            .mappings()
-            .first()
-        )
+        existing = await _find_session_by_client_id(session, user_id, data.client_session_id)
         if existing is not None:
-            if existing["payload_fingerprint"] not in accepted_fingerprints:
-                raise IdempotencyConflict
-            result = await get_session(session, user_id, existing["id"], unit)
+            result = await _completed_retry(session, user_id, existing, accepted_fingerprints, unit)
             if commit:
                 await session.commit()
             return result, False
         await validate_sources(session, user_id, data)
-        identifier = await session.scalar(
-            insert(training_session)
-            .values(
-                user_id=user_id,
-                routine_id=data.routine_id,
-                activity_type="gym",
-                client_session_id=data.client_session_id,
-                payload_fingerprint=fingerprint,
-                started_at=data.started_at,
-                ended_at=data.ended_at,
-            )
-            .on_conflict_do_nothing(
-                index_elements=[training_session.c.user_id, training_session.c.client_session_id]
-            )
-            .returning(training_session.c.id)
-        )
+        identifier = await _insert_session(session, user_id, data, fingerprint)
         created = identifier is not None
         if identifier is None:
-            existing = (
-                (
-                    await session.execute(
-                        sa.select(
-                            training_session.c.id, training_session.c.payload_fingerprint
-                        ).where(
-                            training_session.c.user_id == user_id,
-                            training_session.c.client_session_id == data.client_session_id,
-                        )
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            if existing["payload_fingerprint"] not in accepted_fingerprints:
-                raise IdempotencyConflict
-            identifier = existing["id"]
+            identifier = await _concurrent_session_id(session, user_id, data, accepted_fingerprints)
         else:
-            for position, item in enumerate(data.exercises, 1):
-                entry_id = await session.scalar(
-                    session_exercise.insert()
-                    .values(
-                        session_id=identifier,
-                        exercise_id=item.exercise_id,
-                        exercise_order=position,
-                    )
-                    .returning(session_exercise.c.id)
-                )
-                if item.sets:
-                    await session.execute(
-                        exercise_set.insert(),
-                        [
-                            {
-                                "session_exercise_id": entry_id,
-                                "set_number": number,
-                                "reps": value.reps,
-                                "weight_kg": canonical_weight(
-                                    value.weight.value, value.weight.unit
-                                ),
-                                "completed": True,
-                            }
-                            for number, value in enumerate(item.sets, 1)
-                        ],
-                    )
+            await _insert_session_exercises(session, identifier, data)
         result = await get_session(session, user_id, identifier, unit)
         if commit:
             await session.commit()

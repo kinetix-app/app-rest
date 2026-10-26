@@ -60,14 +60,15 @@ def test_production_requires_authentication_configuration():
 
 @pytest.mark.parametrize("value", [None, ""])
 def test_production_requires_clerk_secret_key(value):
+    settings_values = {
+        "_env_file": None,
+        "postgres_password": SecretStr("test"),
+        "app_env": "production",
+        "clerk_issuer": "https://kinetix-test.clerk.accounts.dev",
+        "clerk_secret_key": value,
+    }
     with pytest.raises(ValidationError, match="CLERK_SECRET_KEY is required"):
-        Settings(
-            _env_file=None,
-            postgres_password=SecretStr("test"),
-            app_env="production",
-            clerk_issuer="https://kinetix-test.clerk.accounts.dev",
-            clerk_secret_key=value,
-        )
+        Settings(**settings_values)
 
 
 def test_clerk_secret_is_hidden():

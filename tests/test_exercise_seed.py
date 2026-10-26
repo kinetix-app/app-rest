@@ -109,8 +109,9 @@ def test_validate_only_and_failed_cli_do_not_report_success(exercise_export, mon
     ],
 )
 def test_storage_configuration_rejects_partial_unsafe_or_public_production_settings(options):
+    settings_values = {"_env_file": None, "postgres_password": SecretStr("test"), **options}
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, postgres_password=SecretStr("test"), **options)
+        Settings(**settings_values)
 
 
 @pytest.mark.anyio

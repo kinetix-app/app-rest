@@ -73,8 +73,7 @@ class SeedExercise:
         return [*self.images.values(), self.video]
 
 
-def load_dataset(root: Path) -> list[SeedExercise]:
-    root = root.resolve(strict=True)
+def _read_index(root: Path) -> dict[str, str]:
     index = json.loads((root / "index.json").read_text(encoding="utf-8"))
     if not isinstance(index, dict) or not index:
         raise ValueError("index.json must map exercise IDs to directory names")
@@ -84,45 +83,64 @@ def load_dataset(root: Path) -> list[SeedExercise]:
         raise ValueError("index.json maps multiple exercises to the same directory")
     if {p.parent.name for p in root.glob("*/data.json")} != set(index.values()):
         raise ValueError("index.json must include every exercise directory exactly once")
+    return index
 
-    def asset(path: Path, external_id: str, content_type: str) -> Asset:
-        resolved = path.resolve(strict=True)
-        if not resolved.is_relative_to(root) or not resolved.is_file():
-            raise ValueError("Assets must be files inside the dataset")
-        if not resolved.stat().st_size:
-            raise ValueError(f"Empty asset: {path.relative_to(root)}")
-        with resolved.open("rb") as stream:
-            digest = file_digest(stream, "sha256").hexdigest()
-        name = f"{SOURCE}/{external_id}/{digest}{path.suffix}"
-        return Asset(resolved, digest, content_type, name)
 
-    result = []
-    for external_id, slug in sorted(index.items()):
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
-            raise ValueError("Exercise directories must be lowercase slugs")
-        folder = root / slug
-        metadata = (folder / "data.json").resolve(strict=True)
-        if not metadata.is_relative_to(root):
-            raise ValueError("Metadata must be inside the dataset")
-        data = ExerciseInput.model_validate_json(metadata.read_bytes())
-        if data.exerciseId != external_id:
-            raise ValueError(f"Exercise ID does not match index: {slug}")
-        if not data.imageUrls or not data.videoUrl:
-            raise ValueError(f"Missing image/video metadata: {slug}")
-        images = {}
-        for resolution in data.imageUrls:
-            if not re.fullmatch(r"[1-9][0-9]*p", resolution):
-                raise ValueError(f"Unsupported image resolution: {slug}")
-            images[resolution] = asset(
-                folder / "images" / f"{resolution}.jpg", external_id, "image/jpeg"
-            )
-        defaults = [key for key, value in data.imageUrls.items() if value == data.imageUrl]
-        if len(defaults) != 1:
-            raise ValueError(f"Default image must identify exactly one image variant: {slug}")
-        video = asset(folder / "video.mp4", external_id, "video/mp4")
-        expected = {metadata, video.path, *(item.path for item in images.values())}
-        actual = {p.resolve() for p in folder.rglob("*") if p.is_file()}
-        if actual != expected:
-            raise ValueError(f"Unmapped files in exercise directory: {slug}")
-        result.append(SeedExercise(data, images, defaults[0], video))
-    return result
+def _asset(path: Path, root: Path, external_id: str, content_type: str) -> Asset:
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(root) or not resolved.is_file():
+        raise ValueError("Assets must be files inside the dataset")
+    if not resolved.stat().st_size:
+        raise ValueError(f"Empty asset: {path.relative_to(root)}")
+    with resolved.open("rb") as stream:
+        digest = file_digest(stream, "sha256").hexdigest()
+    name = f"{SOURCE}/{external_id}/{digest}{path.suffix}"
+    return Asset(resolved, digest, content_type, name)
+
+
+def _load_images(
+    folder: Path, root: Path, external_id: str, data: ExerciseInput
+) -> dict[str, Asset]:
+    images = {}
+    for resolution in data.imageUrls:
+        if not re.fullmatch(r"[1-9]\d*p", resolution):
+            raise ValueError(f"Unsupported image resolution: {folder.name}")
+        images[resolution] = _asset(
+            folder / "images" / f"{resolution}.jpg", root, external_id, "image/jpeg"
+        )
+    return images
+
+
+def _validate_exercise_files(folder: Path, expected: set[Path], slug: str) -> None:
+    actual = {path.resolve() for path in folder.rglob("*") if path.is_file()}
+    if actual != expected:
+        raise ValueError(f"Unmapped files in exercise directory: {slug}")
+
+
+def _load_exercise(root: Path, external_id: str, slug: str) -> SeedExercise:
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+        raise ValueError("Exercise directories must be lowercase slugs")
+    folder = root / slug
+    metadata = (folder / "data.json").resolve(strict=True)
+    if not metadata.is_relative_to(root):
+        raise ValueError("Metadata must be inside the dataset")
+    data = ExerciseInput.model_validate_json(metadata.read_bytes())
+    if data.exerciseId != external_id:
+        raise ValueError(f"Exercise ID does not match index: {slug}")
+    if not data.imageUrls or not data.videoUrl:
+        raise ValueError(f"Missing image/video metadata: {slug}")
+
+    images = _load_images(folder, root, external_id, data)
+    defaults = [key for key, value in data.imageUrls.items() if value == data.imageUrl]
+    if len(defaults) != 1:
+        raise ValueError(f"Default image must identify exactly one image variant: {slug}")
+    video = _asset(folder / "video.mp4", root, external_id, "video/mp4")
+    expected = {metadata, video.path, *(item.path for item in images.values())}
+    _validate_exercise_files(folder, expected, slug)
+    return SeedExercise(data, images, defaults[0], video)
+
+
+def load_dataset(root: Path) -> list[SeedExercise]:
+    root = root.resolve(strict=True)
+    index = _read_index(root)
+    return [_load_exercise(root, external_id, slug) for external_id, slug in sorted(index.items())]

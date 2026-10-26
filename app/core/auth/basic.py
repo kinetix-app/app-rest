@@ -1,7 +1,6 @@
 """Local development credentials; never enabled in production."""
 
 from base64 import b64decode
-from binascii import Error as Base64Error
 from secrets import compare_digest
 
 from app.core.auth.types import InvalidCredentials, VerifiedIdentity
@@ -18,7 +17,7 @@ def verify_basic(authorization: str, settings: Settings) -> VerifiedIdentity:
         username, separator, password = (
             b64decode(encoded, validate=True).decode("utf-8").partition(":")
         )
-    except (Base64Error, UnicodeError, ValueError) as error:
+    except ValueError as error:
         raise InvalidCredentials from error
     configured = settings.basic_auth_users.get(username)
     expected = configured.get_secret_value() if configured is not None else ""
