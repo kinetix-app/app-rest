@@ -140,9 +140,12 @@ jobs:
         with:
           args: >
             -Dsonar.organization=kinetix-app
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
             -Dsonar.pullrequest.key=${{ github.event.pull_request.number }}
             -Dsonar.pullrequest.branch=${{ github.head_ref }}
             -Dsonar.pullrequest.base=${{ github.base_ref }}
+            -Dsonar.links.ci=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: SonarCloud scan (main branch)
         if: github.event_name == 'push'
@@ -152,3 +155,29 @@ jobs:
         with:
           args: >
             -Dsonar.organization=kinetix-app
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+            -Dsonar.links.ci=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Summarize SonarCloud analysis context
+        if: always()
+        env:
+          ANALYSIS_REPOSITORY: ${{ github.repository }}
+          ANALYSIS_BRANCH: ${{ github.head_ref || github.ref_name }}
+          ANALYSIS_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          ANALYSIS_PR: ${{ github.event.pull_request.number }}
+          ANALYSIS_JOB_STATUS: ${{ job.status }}
+        run: |
+          analysis_url='https://sonarcloud.io/dashboard?id=kinetix-backend'
+          if [[ -n "$ANALYSIS_PR" ]]; then
+            analysis_url="${analysis_url}&pullRequest=${ANALYSIS_PR}"
+          fi
+          {
+            printf '### SonarCloud analysis\n\n'
+            printf -- '- Repository: `%s`\n' "$ANALYSIS_REPOSITORY"
+            printf -- '- Branch: `%s`\n' "$ANALYSIS_BRANCH"
+            printf -- '- Commit: [%s](%s/%s/commit/%s)\n' "$ANALYSIS_COMMIT" "$GITHUB_SERVER_URL" "$ANALYSIS_REPOSITORY" "$ANALYSIS_COMMIT"
+            printf -- '- Job result: **%s**\n' "$ANALYSIS_JOB_STATUS"
+            printf -- '- Recorded at: %s\n' "$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            printf -- '- [SonarCloud results](%s) · [Workflow logs](%s/%s/actions/runs/%s)\n' "$analysis_url" "$GITHUB_SERVER_URL" "$ANALYSIS_REPOSITORY" "$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"

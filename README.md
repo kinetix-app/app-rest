@@ -249,11 +249,13 @@ The [CI workflow](.github/workflows/ci.yml) runs on every pull request, on pushe
 
 - **Lint and format:** Ruff linting and formatting verification.
 - **Tests:** the complete pytest suite with coverage, including integration tests against an isolated, health-checked PostgreSQL and Azurite services matching the Compose images.
-- **SonarCloud:** uploads the analysis and coverage report to SonarCloud. This check is advisory: it reports the quality gate without failing the build.
+- **SonarCloud:** uploads the analysis and coverage report to SonarCloud, then waits up to 300 seconds for the quality gate. Both pull-request and main-branch scans fail the job when the project's configured coverage or analysis requirements fail, or when the gate result cannot be obtained before the timeout. Quality gate thresholds are managed in SonarCloud; see the [quality gate analysis parameters](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/analysis-parameters/parameters-not-settable-in-ui).
 
 All jobs install uv 0.12.13, use Python from `.python-version`, cache dependencies and synchronize with `uv sync --locked --group dev --no-build`. `--no-build` stops dependency build scripts from running during synchronization; the project itself is still built. An outdated lockfile fails synchronization. The test job supplies `TEST_DATABASE_URL` for its temporary `fitness_test` database and `TEST_AZURE_STORAGE_ACCOUNT_NAME`/`TEST_AZURE_STORAGE_ACCOUNT_URL`/`TEST_AZURE_STORAGE_ACCOUNT_KEY` for test-owned Azurite containers and uploads `coverage.xml`; the SonarCloud job checks out the full history (`fetch-depth: 0`) and downloads that report. Pull-request runs are analyzed in the pull-request context and the source branch is passed explicitly as `sonar.pullrequest.branch`, so each analysis identifies the branch it came from; pushes to `master` update the project's main branch. Actions are pinned to release commits, workflow permissions are read-only and new commits cancel superseded runs for the same PR.
 
 ### SonarCloud setup
+
+The SonarCloud job writes a GitHub Actions summary even after a failed scan, identifying the repository, source branch, source commit, job result and UTC timestamp, with links to SonarCloud results and workflow logs. Each scan also supplies `sonar.links.ci` with the workflow run URL. The job result includes scanner/setup failures as well as quality gate failures; inspect the logs for the specific cause.
 
 CI-based analysis needs a SonarCloud project bound to the GitHub repository:
 
@@ -262,9 +264,9 @@ CI-based analysis needs a SonarCloud project bound to the GitHub repository:
 3. Confirm `sonar.projectKey` in `sonar-project.properties` and the `-Dsonar.organization` value in the workflow match the project; the defaults are `kinetix-backend` and `kinetix-app`.
 4. Create a personal access token and store it as the `SONAR_TOKEN` repository secret.
 
-The quality gate is advisory: the job does not set `sonar.qualitygate.wait`, so it stays green while the gate result is visible in SonarCloud. Pull requests from forks do not receive repository secrets, so the SonarCloud job is skipped for fork pull requests; adopt the documented split-workflow pattern before relying on analysis for external contributors.
+Both scans set `sonar.qualitygate.wait=true` and `sonar.qualitygate.timeout=300` to enforce the quality gate assigned to the project in SonarCloud. Confirm that this gate includes the required coverage and analysis conditions. Pull requests from forks do not receive repository secrets, so the SonarCloud job is skipped for fork pull requests; adopt the documented split-workflow pattern before relying on analysis for external contributors.
 
-Run the checks above before requesting review. Keep CI commands, version pins and the PostgreSQL image aligned with local development. Repository branch rules can require **Lint and format** and **Tests** to pass before merging.
+Run the checks above before requesting review. Keep CI commands, version pins and the PostgreSQL image aligned with local development. Repository branch rules can require **Lint and format**, **Tests** and **SonarCloud** to pass before merging.
 
 ## Service health and troubleshooting
 

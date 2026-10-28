@@ -46,7 +46,7 @@ uv run --locked --no-build pytest -m 'not integration'
 
 For the full suite, start the dedicated test service and pass its explicit URL as documented in the README. Integration tests must target a database ending in `_test`, and use only test-owned records/tables. Add meaningful permission, calculation, persistence and failure cases with their consuming features.
 
-The pull-request workflow in `.github/workflows/ci.yml` runs Ruff lint/format checks, the complete pytest suite with isolated, health-checked PostgreSQL and Azurite services, and an advisory SonarCloud scan consuming the uploaded coverage report. Keep its uv/Python pins, locked synchronization, database/Azurite images and SonarCloud action pin aligned with local commands and Compose. Preserve immutable action pins and read-only permissions when editing CI.
+The pull-request workflow in `.github/workflows/ci.yml` runs Ruff lint/format checks, the complete pytest suite with isolated, health-checked PostgreSQL and Azurite services, and a SonarCloud scan consuming the uploaded coverage report and enforcing the project's configured quality gate with a 300-second timeout. Keep its uv/Python pins, locked synchronization, database/Azurite images and SonarCloud action pin aligned with local commands and Compose. Preserve immutable action pins and read-only permissions when editing CI.
 
 For configuration/packaging changes, verify host and container modes, health failure/recovery, explicit migrations, data-volume persistence, graceful shutdown and cache reuse as applicable. Report executed checks, results and unverified behavior accurately; infrastructure probes establish infrastructure evidence, while feature delivery requires its own demonstration.
 
