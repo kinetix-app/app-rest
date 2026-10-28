@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Kinetix ZAP evidence — authenticated</title><style>body{font:16px system-ui;max-width:1000px;margin:40px auto;padding:0 20px;color:#18202c}table{border-collapse:collapse;width:100%;margin:20px 0}td,th{border:1px solid #ccd3df;padding:9px;text-align:left}h1,h2{color:#183b65}code{overflow-wrap:anywhere}</style><h1>Kinetix ZAP evidence — authenticated</h1><p>Scan date: 26 October 2026. ZAP 2.17.0. Sanitized metadata extract; HTML regenerated for publication, not an untouched native export. Dynamic evidence and personal traffic are excluded.</p>
+<h2>Authentication Credentials Captured</h2>
+<p>10105-1 · High (Medium) · Reported instances: 18</p>
+<p>An insecure authentication mechanism is in use. This allows an attacker on the network access to the userid and password of the authenticated user. For Basic Authentication, the attacker must merely monitor the network traffic until a Basic Authentication request is received, and then base64 decode the username and password. For Digest Authentication, the attacker has access to the username, and possibly also the password, if the hash (including a nonce) can be successfully cracked, or if a Man-In-The-Middle attack is mounted.</p><p>The attacker eavesdrops on the network until an authentication has completed.</p>
+<p>Use HTTPS, and use a secure authentication mechanism that does not transmit the userid or password in an un-encrypted fashion. In particular, avoid use of the Basic Authentication mechanism, since this trivial obfuscation mechanism is easily broken.</p>
+<table><tr><th>Method</th><th>URL template</th></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/auth/me</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/exercises</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/exercises/body-parts</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/exercises/muscle-groups</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/exercises/{id}</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/exercises/{id}/last-configuration</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/foods</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/foods/{id}</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/me</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/me/objective</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/me/profile/picture</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/nutrition-goals/me</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/nutrition/days/{day_date}</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/recipes</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/routines</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/session-drafts</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/sessions</code></td></tr>
+</table>
+<h2>Weak Authentication Method</h2>
+<p>10105-2 · Medium (Medium) · Reported instances: 1</p>
+<p>HTTP basic or digest authentication has been used over an unsecured connection. The credentials can be read and then reused by someone with access to the network.</p>
+<p>Protect the connection using HTTPS or use a stronger authentication mechanism.</p>
+<table><tr><th>Method</th><th>URL template</th></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/me</code></td></tr>
+</table>
+<h2>X-Content-Type-Options Header Missing</h2>
+<p>10021 · Low (Medium) · Reported instances: 5</p>
+<p>The Anti-MIME-Sniffing header X-Content-Type-Options was not set to 'nosniff'. This allows older versions of Internet Explorer and Chrome to perform MIME-sniffing on the response body, potentially causing the response body to be interpreted and displayed as a content type other than the declared content type. Current (early 2014) and legacy versions of Firefox will use the declared content type (if one is set), rather than performing MIME-sniffing.</p>
+<p>Ensure that the application/web server sets the Content-Type header appropriately, and that it sets the X-Content-Type-Options header to 'nosniff' for all web pages.</p><p>If possible, ensure that the end user uses a standards-compliant and modern web browser that does not perform MIME-sniffing at all, or that can be directed by the web application/web server to not perform MIME-sniffing.</p>
+<table><tr><th>Method</th><th>URL template</th></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/auth/me</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/foods</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/me</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/me/objective</code></td></tr>
+<tr><td>GET</td><td><code>http://host.docker.internal:8002/api/v1/recipes</code></td></tr>
+</table>
+</html>

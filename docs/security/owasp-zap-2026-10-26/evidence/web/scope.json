@@ -1,0 +1,40 @@
+{
+  "date_utc": "2026-10-26T19:36:59.400315+00:00",
+  "scope": "Unauthenticated local development baseline; delivery identity not confirmed",
+  "repositories": {
+    "backend": {
+      "head": "032d4129e5472fa54d0d8a61a9400e3a6f2072bb",
+      "branch": "feature/sonarqube-all-issues",
+      "dirty": true
+    },
+    "frontend": {
+      "head": "73db14efc31410289160dba1d3d06885f5f89dcf",
+      "branch": "feature/sonarqube-all-issues",
+      "dirty": true
+    }
+  },
+  "targets": [
+    "http://host.docker.internal:8081",
+    "http://host.docker.internal:8000/docs"
+  ],
+  "excluded": [
+    "Authenticated journeys",
+    "Active attack scanning",
+    "Third-party providers",
+    "Native application security",
+    "Production TLS and deployment"
+  ],
+  "scanner": {
+    "version": "2.17.0",
+    "image": "ghcr.io/zaproxy/zaproxy@sha256:030d3df57735dacbb83464854758e674dd9ad01d79d12a129a8e58b1fd384238",
+    "mode": "Traditional spider and passive baseline; no authentication; no active scan",
+    "exit_codes": {
+      "web": 2,
+      "api": 2
+    },
+    "generated_utc": {
+      "web": "Mon, 26 Oct 2026 19:47:39",
+      "api": "Mon, 26 Oct 2026 19:43:34"
+    }
+  }
+}
