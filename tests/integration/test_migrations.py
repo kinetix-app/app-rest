@@ -86,7 +86,7 @@ async def test_clean_migration_matches_sql_draft_and_downgrades(integration_url)
                 await connection.run_sync(lambda conn: migrate(conn, "head"))
                 actual = await connection.run_sync(lambda conn: schema_signature(conn, migrated))
                 expected = await connection.run_sync(lambda conn: schema_signature(conn, draft))
-                assert len(actual) == 21
+                assert len(actual) == 29
                 assert actual == expected
                 # Empty-account upgrades must leave sequences ready to generate ID 1.
                 assert (

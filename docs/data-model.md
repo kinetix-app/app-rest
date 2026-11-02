@@ -1,6 +1,6 @@
 # Kinetix data model
 
-This diagram reflects the [PostgreSQL schema reference](../db-schema.sql). The Alembic chain initializes the product tables, converts existing UUID accounts to generated BIGINT IDs and adds workout retries and resumable snapshots. See the [README](../README.md) for implemented API behavior and verification. Existing account constraints are retained.
+This diagram covers the 21 core tables in the [PostgreSQL schema reference](../db-schema.sql); the eight Sprint 2 tables are described below (29 tables in total). The Alembic chain initializes the product tables, converts existing UUID accounts to generated BIGINT IDs and adds workout retries and resumable snapshots. See the [README](../README.md) for implemented API behavior and verification. Existing account constraints are retained.
 
 `BIGSERIAL` is shown as `bigint` with a generated-value note. All local keys/references use BIGINT. `PK` = primary key, `FK` = foreign key, `UK` = unique column. Nullable references allow zero or one parent; each parent can have zero or many children unless the child key is unique. Auth identity uniqueness applies to the issuer/subject pair. Category values are documented beside their VARCHAR columns in the SQL.
 
@@ -250,3 +250,33 @@ Routine exercises and recorded session exercises each have numbered child sets w
 `meal_item` references either a food or a recipe; business logic validates that exactly one source and its matching quantity are provided. `body_measurement` belongs to the user and supports evolution and physical-goal progress without a direct goal foreign key. Array fields such as `related_exercise_ids` are provider metadata, not local foreign keys.
 
 See the [data model review](data-model-review.md) for decisions, pending behavior and implementation status. The older `database-schema.png` is not synchronized with this draft.
+
+## Sprint 2 posts and leagues
+
+Revision `20261102_01` adds eight persistence tables from
+[backend issue #31](https://github.com/kinetix-app/app-rest/issues/31):
+
+- `post`: generated ID, text, user, creation timestamp, visibility and type.
+- `file`: generated ID, post, quoted `order`, type, creation timestamp, bucket URL,
+  original file name and BIGINT size in bytes.
+- `post_like`: primary key `(post_id, user_id)` and creation timestamp.
+- `post_comment`: generated ID, post, user, comment and creation timestamp.
+- `league`: generated ID, name, creation timestamp and creator user.
+- `league_member`: primary key `(user_id, league_id)` and joined date.
+- `league_round`: generated ID, start/end dates and league.
+- `league_score`: primary key `(league_id, user_id, round_id)`, integer score and
+  creation timestamp.
+
+All listed fields are required. References use BIGINT foreign keys with the default
+restrictive deletion behavior. Events use timezone-aware timestamps; joined/start/end
+dates use DATE. Likes, membership and score keys prevent duplicate records.
+`post_comment` and `created_at` normalize the supplied spelling errors.
+
+Python enums define visibility (`PUBLIC`, `PRIVATE`, `LEAGUE`), post type (`SESSION`,
+`LEAGUE_PENALTY`) and file type (`IMAGE`, `VIDEO`). SQLAlchemy validates category
+strings, while PostgreSQL stores VARCHAR without enum types or category CHECKs.
+
+This is persistence only. Visibility permissions, membership enforcement, score
+calculation, date/order/size bounds, media delivery and associations between posts
+and sessions/leagues must be implemented with their consuming features. The current
+foreign keys do not enforce that a score's round belongs to its supplied league.
