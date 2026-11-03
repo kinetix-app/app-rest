@@ -1,0 +1,181 @@
+{
+  "programName": "ZAP",
+  "version": "2.17.0",
+  "generated_utc": "Mon, 26 Oct 2026 21:55:16",
+  "redactions": "No request/response bodies, headers, credentials, query strings, personal evidence or concrete resource IDs. Dynamic alert evidence and otherinfo omitted. HTML is a regenerated sanitized extract.",
+  "site": [
+    {
+      "name": "http://host.docker.internal:8002",
+      "alerts": [
+        {
+          "pluginid": "10105",
+          "alertRef": "10105-1",
+          "name": "Authentication Credentials Captured",
+          "riskcode": "3",
+          "confidence": "2",
+          "riskdesc": "High (Medium)",
+          "desc": "<p>An insecure authentication mechanism is in use. This allows an attacker on the network access to the userid and password of the authenticated user. For Basic Authentication, the attacker must merely monitor the network traffic until a Basic Authentication request is received, and then base64 decode the username and password. For Digest Authentication, the attacker has access to the username, and possibly also the password, if the hash (including a nonce) can be successfully cracked, or if a Man-In-The-Middle attack is mounted.</p><p>The attacker eavesdrops on the network until an authentication has completed.</p>",
+          "solution": "<p>Use HTTPS, and use a secure authentication mechanism that does not transmit the userid or password in an un-encrypted fashion. In particular, avoid use of the Basic Authentication mechanism, since this trivial obfuscation mechanism is easily broken.</p>",
+          "reference": "<p>https://owasp.org/www-community/attacks/Brute_force_attack</p><p>https://en.wikipedia.org/wiki/Digest_access_authentication</p>",
+          "cweid": "287",
+          "wascid": "1",
+          "count": "18",
+          "instances": [
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/auth/me",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/exercises",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/exercises",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/exercises/{id}",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/exercises/{id}/last-configuration",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/exercises/body-parts",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/exercises/muscle-groups",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/foods",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/foods/{id}",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/me",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/me/objective",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/me/profile/picture",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/nutrition-goals/me",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/nutrition/days/{day_date}",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/recipes",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/routines",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/session-drafts",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/sessions",
+              "evidence": "[REDACTED]"
+            }
+          ]
+        },
+        {
+          "pluginid": "10105",
+          "alertRef": "10105-2",
+          "name": "Weak Authentication Method",
+          "riskcode": "2",
+          "confidence": "2",
+          "riskdesc": "Medium (Medium)",
+          "desc": "<p>HTTP basic or digest authentication has been used over an unsecured connection. The credentials can be read and then reused by someone with access to the network.</p>",
+          "solution": "<p>Protect the connection using HTTPS or use a stronger authentication mechanism.</p>",
+          "reference": "<p>https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html</p>",
+          "cweid": "326",
+          "wascid": "4",
+          "count": "1",
+          "instances": [
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/me",
+              "evidence": "[REDACTED]"
+            }
+          ]
+        },
+        {
+          "pluginid": "10021",
+          "alertRef": "10021",
+          "name": "X-Content-Type-Options Header Missing",
+          "riskcode": "1",
+          "confidence": "2",
+          "riskdesc": "Low (Medium)",
+          "desc": "<p>The Anti-MIME-Sniffing header X-Content-Type-Options was not set to 'nosniff'. This allows older versions of Internet Explorer and Chrome to perform MIME-sniffing on the response body, potentially causing the response body to be interpreted and displayed as a content type other than the declared content type. Current (early 2014) and legacy versions of Firefox will use the declared content type (if one is set), rather than performing MIME-sniffing.</p>",
+          "solution": "<p>Ensure that the application/web server sets the Content-Type header appropriately, and that it sets the X-Content-Type-Options header to 'nosniff' for all web pages.</p><p>If possible, ensure that the end user uses a standards-compliant and modern web browser that does not perform MIME-sniffing at all, or that can be directed by the web application/web server to not perform MIME-sniffing.</p>",
+          "reference": "<p>https://learn.microsoft.com/en-us/previous-versions/windows/internet-explorer/ie-developer/compatibility/gg622941(v=vs.85)</p><p>https://owasp.org/www-community/Security_Headers</p>",
+          "cweid": "693",
+          "wascid": "15",
+          "count": "5",
+          "instances": [
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/auth/me",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/foods",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/me",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/me/objective",
+              "evidence": "[REDACTED]"
+            },
+            {
+              "method": "GET",
+              "uri": "http://host.docker.internal:8002/api/v1/recipes",
+              "evidence": "[REDACTED]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

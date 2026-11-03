@@ -1,0 +1,403 @@
+{
+  "coverage": [
+    {
+      "account": "anonymous",
+      "method": "GET",
+      "route": "/api/v1/me",
+      "status": 401,
+      "case": "missing credentials",
+      "cache_control": null,
+      "www_authenticate": "Basic"
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/me",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/me",
+      "status": 401,
+      "case": "incorrect password",
+      "cache_control": null,
+      "www_authenticate": "Basic"
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/me/profile/picture",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": "private, no-store",
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/auth/me",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/me/objective",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/foods",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/recipes",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/exercises",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/exercises/body-parts",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/exercises/muscle-groups",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/routines",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/sessions",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/session-drafts",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/nutrition-goals/me",
+      "status": 404,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/nutrition/days/{day_date}",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/exercises/{id}",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/exercises/{id}/last-configuration",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/foods/{id}",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 1",
+      "method": "GET",
+      "route": "/api/v1/exercises",
+      "status": 422,
+      "case": "invalid pagination",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/me",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/me",
+      "status": 401,
+      "case": "incorrect password",
+      "cache_control": null,
+      "www_authenticate": "Basic"
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/me/profile/picture",
+      "status": 404,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/auth/me",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/me/objective",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/foods",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/recipes",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/exercises",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/exercises/body-parts",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/exercises/muscle-groups",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/routines",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/sessions",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/session-drafts",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/nutrition-goals/me",
+      "status": 404,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/nutrition/days/{day_date}",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/exercises/{id}",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/exercises/{id}/last-configuration",
+      "status": 200,
+      "case": "authenticated read",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/exercises",
+      "status": 422,
+      "case": "invalid pagination",
+      "cache_control": null,
+      "www_authenticate": null
+    },
+    {
+      "account": "Account 2",
+      "method": "GET",
+      "route": "/api/v1/foods/{id}",
+      "status": 404,
+      "case": "cross-account read",
+      "cache_control": null,
+      "www_authenticate": null
+    }
+  ],
+  "isolation": [
+    {
+      "case": "different authenticated accounts",
+      "passed": true
+    },
+    {
+      "resource": "routines",
+      "owner": "Account 1",
+      "requesting_account": "Account 2",
+      "status": "skipped: no existing resource"
+    },
+    {
+      "resource": "sessions",
+      "owner": "Account 1",
+      "requesting_account": "Account 2",
+      "status": "skipped: no existing resource"
+    },
+    {
+      "resource": "foods",
+      "owner": "Account 1",
+      "requesting_account": "Account 2",
+      "status": 404,
+      "passed": true
+    },
+    {
+      "resource": "routines",
+      "owner": "Account 2",
+      "requesting_account": "Account 1",
+      "status": "skipped: no existing resource"
+    },
+    {
+      "resource": "sessions",
+      "owner": "Account 2",
+      "requesting_account": "Account 1",
+      "status": "skipped: no existing resource"
+    },
+    {
+      "resource": "foods",
+      "owner": "Account 2",
+      "requesting_account": "Account 1",
+      "status": "skipped: no existing resource"
+    }
+  ],
+  "passive_queue_remaining": 0,
+  "accounts_attempted": 2,
+  "accounts_authenticated": 2,
+  "request_count": 39,
+  "all_requests_GET": true
+}

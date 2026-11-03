@@ -1,0 +1,10 @@
+{
+  "scan_date": "2026-10-26",
+  "publication_prepared": "2026-10-27",
+  "note": "Sanitized extracts of retained local scan artifacts; HTML regenerated from sanitized alert metadata. Counts unchanged. Original request/response payloads are not published.",
+  "source_sha256": {
+    "web/report.json": "419e0f9046a7459a65a153e99faf595d454d4dac98237ae6e000e6e868defbb2",
+    "api/report.json": "95031e7b4c66767d40559a3e19e71ff09c71790f0ddc8629c3ba9c94f4cb27f5",
+    "authenticated/report.json": "8de46d6065fcd4c6db50d3ccc6b3b640768c6be8b16dd290d48278f39215a7db"
+  }
+}
