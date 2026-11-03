@@ -158,7 +158,11 @@ async def finish_draft(
             # prevents lock-upgrade deadlocks with concurrent routine PATCH calls.
             origin = await session.scalar(
                 sa.select(routine.c.id)
-                .where(routine.c.id == snapshot.routine_id, routine.c.user_id == user_id)
+                .where(
+                    routine.c.id == snapshot.routine_id,
+                    routine.c.user_id == user_id,
+                    routine.c.deleted_at.is_(None),
+                )
                 .with_for_update()
             )
             if origin is None:

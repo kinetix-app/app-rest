@@ -52,7 +52,8 @@ def test_large_decoded_image_is_rejected():
 
 
 @pytest.mark.anyio
-async def test_multipart_entire_body_is_bounded_even_without_content_length(settings):
+@pytest.mark.parametrize("path", ["/api/v1/me/profile/picture", "/api/v1/routines/123/picture"])
+async def test_multipart_entire_body_is_bounded_even_without_content_length(settings, path):
     app = create_app(settings)
 
     async def chunks():
@@ -63,7 +64,7 @@ async def test_multipart_entire_body_is_bounded_even_without_content_length(sett
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/api/v1/me/profile/picture",
+            path,
             content=chunks(),
             headers={
                 "Content-Type": "multipart/form-data; boundary=x",

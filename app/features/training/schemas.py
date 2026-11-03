@@ -77,11 +77,13 @@ class ExerciseSelectionPatch(ExerciseSelection):
 
 
 class RoutineCreate(InputModel):
+    notes: str | None = Field(default=None, max_length=1000)
     name: str = Field(min_length=1, max_length=150)
     exercises: list[ExerciseSelection] = Field(min_length=1, max_length=500)
 
 
 class RoutinePatch(InputModel):
+    notes: str | None = Field(default=None, max_length=1000)
     name: str | None = Field(default=None, min_length=1, max_length=150)
     exercises: list[ExerciseSelectionPatch] | None = Field(
         default=None, min_length=1, max_length=500
@@ -90,8 +92,8 @@ class RoutinePatch(InputModel):
     @model_validator(mode="after")
     def validate_changes(self) -> Self:
         if not self.model_fields_set:
-            raise ValueError("Supply name or exercises")
-        if any(getattr(self, key) is None for key in self.model_fields_set):
+            raise ValueError("Supply name, notes or exercises")
+        if any(getattr(self, key) is None for key in self.model_fields_set - {"notes"}):
             raise ValueError("Name and exercises cannot be null")
         if self.exercises is not None:
             ids = [item.id for item in self.exercises if item.id is not None]
@@ -143,6 +145,11 @@ class RoutineExerciseResponse(BaseModel):
 class RoutineSummary(BaseModel):
     id: int
     name: str
+    notes: str | None
+    exercise_count: int
+    last_performed_at: AwareDatetime | None
+    activity_type: Literal["gym"] = "gym"
+    image_url: str | None
 
 
 class RoutineResponse(RoutineSummary):

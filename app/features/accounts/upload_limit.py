@@ -1,7 +1,11 @@
 """Bound multipart body bytes, including chunked requests, before form parsing/spooling."""
 
+import re
+
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from app.features.training.creation import MAX_ROUTINE_REQUEST_BYTES
 
 # 5MiB file plus bounded multipart headers/fields.
 MAX_PICTURE_REQUEST_BYTES = 5 * 1024 * 1024 + 64 * 1024
@@ -15,20 +19,28 @@ class ProfileUploadLimit:
         if (
             scope["type"] != "http"
             or scope["method"] != "POST"
-            or scope["path"].rstrip("/") != "/api/v1/me/profile/picture"
+            or not (
+                scope["path"].rstrip("/") in {"/api/v1/me/profile/picture", "/api/v1/routines"}
+                or re.fullmatch(r"/api/v1/routines/[0-9]+/picture/?", scope["path"])
+            )
         ):
             await self.app(scope, receive, send)
             return
+        is_create = scope["path"].rstrip("/") == "/api/v1/routines"
+        limit = MAX_ROUTINE_REQUEST_BYTES if is_create else MAX_PICTURE_REQUEST_BYTES
         body = bytearray()
         while True:
             message = await receive()
             if message["type"] == "http.disconnect":
                 return
             chunk = message.get("body", b"")
-            if len(body) + len(chunk) > MAX_PICTURE_REQUEST_BYTES:
-                await JSONResponse({"detail": "Profile picture exceeds 5 MiB limit"}, 413)(
-                    scope, receive, send
+            if len(body) + len(chunk) > limit:
+                detail = (
+                    "Routine request exceeds 21 MiB limit"
+                    if is_create
+                    else "Picture exceeds 5 MiB limit"
                 )
+                await JSONResponse({"detail": detail}, 413)(scope, receive, send)
                 return
             body.extend(chunk)
             if not message.get("more_body", False):

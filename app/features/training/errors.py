@@ -15,3 +15,7 @@ class InvalidSelection(TrainingError):
 
 class IdempotencyConflict(TrainingError):
     """An account reused a client key for different normalized workout content."""
+
+
+class RoutineInUse(TrainingError):
+    """A resumable workout currently uses this routine."""

@@ -128,6 +128,7 @@ async def training_api(integration_url):
                     )
                 yield SimpleNamespace(
                     client=client,
+                    app=app,
                     sessions=sessions,
                     alice=alice,
                     bob=bob,
@@ -200,7 +201,7 @@ async def test_routine_save_reopen_edit_and_account_isolation(training_api):
     assert [slot["exercise"]["id"] for slot in saved["exercises"]] == api.catalogue[:3]
     assert (await api.client.get(path, auth=api.alice)).json() == saved
     assert (await api.client.get("/api/v1/routines", auth=api.alice)).json()["items"] == [
-        {"id": saved["id"], "name": "Upper body"}
+        {key: value for key, value in saved.items() if key != "exercises"}
     ]
     assert (await api.client.get("/api/v1/routines", auth=api.bob)).json()["items"] == []
     assert (await api.client.get(path, auth=api.bob)).status_code == 404
@@ -1139,9 +1140,10 @@ async def test_blank_finish_and_empty_routine_update_validation(training_api):
     assert result.status_code == 200
     assert result.json()["exercises"] == []
     assert result.json()["routine_id"] == template["id"]
-    assert (
-        await api.client.get(f"/api/v1/routines/{template['id']}", auth=api.alice)
-    ).json() == template
+    assert (await api.client.get(f"/api/v1/routines/{template['id']}", auth=api.alice)).json() == {
+        **template,
+        "last_performed_at": finish["ended_at"],
+    }
 
 
 async def test_finish_optional_routine_update_is_atomic_and_retry_decision_is_frozen(training_api):
@@ -1353,3 +1355,613 @@ async def test_unavailable_routine_update_preserves_draft_and_actual_values(trai
     assert restored["exercises"][0]["sets"][0]["reps"] == 6
     assert restored["routine_id"] == template["id"]
     assert (await api.client.get("/api/v1/sessions", auth=api.alice)).json()["items"] == []
+
+
+async def test_routine_notes_metadata_and_patch_semantics(training_api):
+    api = training_api
+    created = await api.client.post(
+        "/api/v1/routines",
+        auth=api.alice,
+        json={
+            "name": "Push",
+            "notes": "  Controlled tempo  ",
+            "exercises": [{"exercise_id": api.catalogue[0]}],
+        },
+    )
+    assert created.status_code == 201
+    saved = created.json()
+    path = f"/api/v1/routines/{saved['id']}"
+    assert saved["notes"] == "Controlled tempo"
+    assert saved["exercise_count"] == 1
+    assert saved["last_performed_at"] is None
+    assert saved["image_url"] is None
+    assert saved["activity_type"] == "gym"
+    renamed = await api.client.patch(path, auth=api.alice, json={"name": "Push day"})
+    assert renamed.json()["notes"] == saved["notes"]
+    assert (await api.client.patch(path, auth=api.alice, json={"notes": None})).json()[
+        "notes"
+    ] is None
+    assert (
+        await api.client.patch(path, auth=api.alice, json={"notes": "a" * 1001})
+    ).status_code == 422
+    assert (await api.client.patch(path, auth=api.alice, json={"name": None})).status_code == 422
+    assert (await api.client.patch(path, auth=api.bob, json={"notes": "stolen"})).status_code == 404
+    # Completion metadata comes only from this account's completed source routine sessions.
+    ended = datetime(2026, 11, 3, 12, tzinfo=UTC)
+    async with api.sessions.begin() as session:
+        await session.execute(
+            training_session.insert(),
+            [
+                dict(
+                    user_id=api.alice_id,
+                    routine_id=saved["id"],
+                    activity_type="gym",
+                    started_at=ended - timedelta(hours=1),
+                    ended_at=ended,
+                ),
+                dict(
+                    user_id=api.bob_id,
+                    routine_id=saved["id"],
+                    activity_type="gym",
+                    started_at=ended,
+                    ended_at=ended + timedelta(hours=1),
+                ),
+                dict(
+                    user_id=api.alice_id,
+                    routine_id=saved["id"],
+                    activity_type="gym",
+                    started_at=ended,
+                    ended_at=None,
+                ),
+            ],
+        )
+    detail = (await api.client.get(path, auth=api.alice)).json()
+    assert datetime.fromisoformat(detail["last_performed_at"]) == ended
+    summary = (await api.client.get("/api/v1/routines", auth=api.alice)).json()["items"][0]
+    assert summary == {key: value for key, value in detail.items() if key != "exercises"}
+
+
+async def test_private_routine_cover_isolation_replacement_and_rollback(training_api, monkeypatch):
+    import os
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.core.storage.azure import BlobStorage
+    from app.features.training import pictures
+
+    api = training_api
+    url = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_URL")
+    key = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_KEY")
+    account = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_NAME")
+    if not all((url, key, account)):
+        pytest.skip("Set explicit TEST_AZURE_STORAGE_ACCOUNT_NAME/URL/KEY for Azurite")
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        postgres_password=SecretStr("unused"),
+        azure_storage_account_name=account,
+        azure_storage_account_url=url,
+        azure_storage_account_key=SecretStr(key),
+        azure_storage_media_base_url=url,
+        azure_storage_profile_container="test-routines-" + uuid4().hex,
+    )
+    storage = BlobStorage(settings)
+    api.app.state.blob_storage = storage
+    container = storage.client.get_container_client(settings.azure_storage_profile_container)
+    saved = await create(api)
+    path = f"/api/v1/routines/{saved['id']}/picture"
+
+    def image(color):
+        output = BytesIO()
+        Image.new("RGB", (40, 40), color).save(output, format="PNG")
+        return output.getvalue()
+
+    async def upload(color="red", auth=None):
+        return await api.client.post(
+            path, auth=auth or api.alice, files={"file": ("photo.png", image(color), "image/png")}
+        )
+
+    try:
+        assert (await api.client.get(path, auth=api.alice)).status_code == 404
+        assert (await upload(auth=api.bob)).status_code == 404
+        first = await upload()
+        assert first.status_code == 200
+        assert first.json()["image_url"].startswith(path + "?v=")
+        assert "picture_blob_name" not in first.json()
+        first_name = [blob.name async for blob in container.list_blobs()][0]
+        assert not (await container.get_container_properties()).public_access
+        async with httpx.AsyncClient() as anonymous:
+            assert (await anonymous.get(f"{container.url}/{first_name}")).status_code in (403, 404)
+        original = await api.client.get(path, auth=api.alice)
+        assert original.status_code == 200
+        assert original.headers["cache-control"] == "private, no-store"
+        assert (await api.client.get(path)).status_code == 401
+        assert (await api.client.get(path, auth=api.bob)).status_code == 404
+        assert (await api.client.delete(path, auth=api.bob)).status_code == 404
+        assert (
+            await api.client.post(
+                path, auth=api.alice, files={"file": ("bad.png", b"bad", "image/png")}
+            )
+        ).status_code == 422
+        assert (
+            await api.client.post(
+                path, auth=api.alice, files={"file": ("bad.gif", b"bad", "image/gif")}
+            )
+        ).status_code == 415
+        assert (
+            await api.client.post(
+                path,
+                auth=api.alice,
+                files={"file": ("huge.png", b"x" * (5 * 1024 * 1024 + 1), "image/png")},
+            )
+        ).status_code == 413
+        original_upload = storage.upload_profile_picture
+
+        async def unavailable(*args):
+            raise TimeoutError
+
+        monkeypatch.setattr(storage, "upload_profile_picture", unavailable)
+        assert (await upload()).status_code == 503
+        monkeypatch.setattr(storage, "upload_profile_picture", original_upload)
+        original_get = pictures.get_routine
+
+        async def failed_response(*args):
+            raise RuntimeError("synthetic routine rollback")
+
+        monkeypatch.setattr(pictures, "get_routine", failed_response)
+        with pytest.raises(RuntimeError, match="synthetic routine rollback"):
+            await upload("blue")
+        monkeypatch.setattr(pictures, "get_routine", original_get)
+        assert [blob.name async for blob in container.list_blobs()] == [first_name]
+        assert (await api.client.get(path, auth=api.alice)).content == original.content
+        second = await upload("blue")
+        assert second.json()["image_url"] != first.json()["image_url"]
+        assert (await api.client.get(path, auth=api.alice)).content != original.content
+        assert len([blob async for blob in container.list_blobs()]) == 1
+        # New DB session sees the committed reference and untouched template.
+        async with api.sessions() as session:
+            reopened = await pictures.get_routine(session, api.alice_id, saved["id"])
+            assert reopened.image_url == second.json()["image_url"]
+            assert len(reopened.exercises) == saved["exercise_count"]
+        for _ in range(2):
+            removed = await api.client.delete(path, auth=api.alice)
+            assert removed.json()["image_url"] is None
+        assert (await api.client.get(path, auth=api.alice)).status_code == 404
+        assert [blob async for blob in container.list_blobs()] == []
+        await container.set_container_access_policy(signed_identifiers={}, public_access="blob")
+        assert (await upload()).status_code == 503
+    finally:
+        await container.delete_container()
+        api.app.state.blob_storage = None
+        await storage.close()
+
+
+async def test_multipart_routine_create_without_image_and_validation(training_api):
+    import json
+
+    api = training_api
+    path = "/api/v1/routines"
+    content = {
+        "name": "Multipart routine",
+        "notes": "Plan",
+        "exercises": [
+            {"exercise_id": api.catalogue[0], "sets": [{"reps": 8, "weight_kg": "40.25"}]}
+        ],
+    }
+    # No storage configuration is required when no image is selected.
+    created = await api.client.post(
+        path, auth=api.alice, files={"content": (None, json.dumps(content))}
+    )
+    assert created.status_code == 201, created.text
+    saved = created.json()
+    assert saved["name"] == content["name"]
+    assert saved["notes"] == content["notes"]
+    assert saved["image_url"] is None
+    assert saved["exercises"][0]["default_sets"][0]["weight_kg"] == "40.250000"
+    reopened = await api.client.get(f"{path}/{saved['id']}", auth=api.alice)
+    assert reopened.json() == saved
+    for fields in (
+        {"content": (None, "not JSON")},
+        {"content": (None, json.dumps({**content, "name": ""}))},
+        {"content": (None, json.dumps({**content, "exercises": [{"exercise_id": api.private}]}))},
+        {"content": (None, json.dumps(content)), "file": (None, "not a file")},
+        {"unknown": (None, json.dumps(content))},
+    ):
+        assert (await api.client.post(path, auth=api.alice, files=fields)).status_code == 422
+    assert (await api.client.get(path, auth=api.alice)).json()["items"] == [
+        {key: value for key, value in saved.items() if key != "exercises"}
+    ]
+    assert (await api.client.get(path, auth=api.bob)).json()["items"] == []
+    schema = api.app.openapi()["paths"][path]["post"]["requestBody"]["content"]
+    assert set(schema) == {"application/json", "multipart/form-data"}
+    assert schema["multipart/form-data"]["schema"]["required"] == ["content"]
+
+
+async def test_multipart_routine_create_image_is_atomic_and_private(training_api, monkeypatch):
+    import json
+    import os
+    from io import BytesIO
+
+    from PIL import Image
+
+    from app.core.storage.azure import BlobStorage
+    from app.features.training import service
+
+    api = training_api
+    url = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_URL")
+    key = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_KEY")
+    account = os.environ.get("TEST_AZURE_STORAGE_ACCOUNT_NAME")
+    if not all((url, key, account)):
+        pytest.skip("Set explicit TEST_AZURE_STORAGE_ACCOUNT_NAME/URL/KEY for Azurite")
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        postgres_password=SecretStr("unused"),
+        azure_storage_account_name=account,
+        azure_storage_account_url=url,
+        azure_storage_account_key=SecretStr(key),
+        azure_storage_media_base_url=url,
+        azure_storage_profile_container="test-routine-create-" + uuid4().hex,
+    )
+    storage = BlobStorage(settings)
+    api.app.state.blob_storage = storage
+    container = storage.client.get_container_client(settings.azure_storage_profile_container)
+    await container.create_container(public_access=None)
+    output = BytesIO()
+    Image.new("RGB", (40, 40), "green").save(output, format="PNG")
+    image = output.getvalue()
+    path = "/api/v1/routines"
+    content = {
+        "name": "Atomic routine",
+        "notes": "Cover included",
+        "exercises": [{"exercise_id": api.catalogue[0], "sets": [{"reps": 8, "weight_kg": "20"}]}],
+    }
+
+    async def create_multipart(payload=None, picture=image, mime="image/png"):
+        return await api.client.post(
+            path,
+            auth=api.alice,
+            files={
+                "content": (None, json.dumps(payload or content)),
+                "file": ("cover.png", picture, mime),
+            },
+        )
+
+    async def assert_empty():
+        async with api.sessions() as session:
+            assert await session.scalar(sa.select(sa.func.count()).select_from(routine)) == 0
+            assert (
+                await session.scalar(sa.select(sa.func.count()).select_from(routine_exercise)) == 0
+            )
+            assert (
+                await session.scalar(sa.select(sa.func.count()).select_from(routine_exercise_set))
+                == 0
+            )
+        assert [blob async for blob in container.list_blobs()] == []
+
+    try:
+        assert (await create_multipart(picture=b"bad")).status_code == 422
+        assert (await create_multipart(mime="image/gif")).status_code == 415
+        assert (await create_multipart(picture=b"x" * (5 * 1024 * 1024 + 1))).status_code == 413
+        assert (await create_multipart(payload={**content, "name": ""})).status_code == 422
+        assert (
+            await create_multipart(payload={**content, "exercises": [{"exercise_id": api.private}]})
+        ).status_code == 422
+        await assert_empty()
+        api.app.state.blob_storage = None
+        assert (await create_multipart()).status_code == 503
+        api.app.state.blob_storage = storage
+        await assert_empty()
+        original_upload = storage.upload_profile_picture
+
+        async def unavailable(*args):
+            raise TimeoutError
+
+        monkeypatch.setattr(storage, "upload_profile_picture", unavailable)
+        assert (await create_multipart()).status_code == 503
+        monkeypatch.setattr(storage, "upload_profile_picture", original_upload)
+        await assert_empty()
+        # Fail after the routine and its planned sets are inserted, before commit.
+        original_read = service.get_routine
+
+        async def failed_response(*args):
+            raise RuntimeError("synthetic atomic create rollback")
+
+        monkeypatch.setattr(service, "get_routine", failed_response)
+        with pytest.raises(RuntimeError, match="synthetic atomic create rollback"):
+            await create_multipart()
+        monkeypatch.setattr(service, "get_routine", original_read)
+        await assert_empty()
+        created = await create_multipart()
+        assert created.status_code == 201, created.text
+        saved = created.json()
+        assert saved["image_url"]
+        assert saved["exercise_count"] == 1
+        assert saved["notes"] == content["notes"]
+        assert (await api.client.get(f"{path}/{saved['id']}", auth=api.alice)).json() == saved
+        picture = await api.client.get(saved["image_url"], auth=api.alice)
+        assert picture.status_code == 200
+        assert picture.headers["content-type"] == "image/jpeg"
+        assert (await api.client.get(saved["image_url"], auth=api.bob)).status_code == 404
+        assert (await api.client.get(saved["image_url"])).status_code == 401
+        names = [blob.name async for blob in container.list_blobs()]
+        assert len(names) == 1
+        assert names[0].startswith(f"routines/{api.alice_id}/{saved['id']}/")
+        assert not (await container.get_container_properties()).public_access
+        async with httpx.AsyncClient() as anonymous:
+            assert (await anonymous.get(f"{container.url}/{names[0]}")).status_code in (403, 404)
+        deleted_path = f"{path}/{saved['id']}"
+        assert (await api.client.delete(deleted_path, auth=api.alice)).status_code == 204
+        assert [blob async for blob in container.list_blobs()] == []
+        assert (await api.client.get(saved["image_url"], auth=api.alice)).status_code == 404
+        assert (
+            await api.client.post(
+                deleted_path + "/picture",
+                auth=api.alice,
+                files={"file": ("cover.png", image, "image/png")},
+            )
+        ).status_code == 404
+        assert [blob async for blob in container.list_blobs()] == []
+        # Provider cleanup failure must not restore or expose the retired routine.
+        another = await create_multipart()
+        another_path = f"{path}/{another.json()['id']}"
+        original_delete = storage.delete_profile_picture
+
+        async def failed_cleanup(*args):
+            raise TimeoutError
+
+        monkeypatch.setattr(storage, "delete_profile_picture", failed_cleanup)
+        assert (await api.client.delete(another_path, auth=api.alice)).status_code == 204
+        monkeypatch.setattr(storage, "delete_profile_picture", original_delete)
+        assert (
+            await api.client.get(another.json()["image_url"], auth=api.alice)
+        ).status_code == 404
+        assert len([blob async for blob in container.list_blobs()]) == 1
+    finally:
+        await container.delete_container()
+        api.app.state.blob_storage = None
+        await storage.close()
+
+
+async def test_delete_routine_preserves_history_and_hides_active_apis(training_api):
+    api = training_api
+    saved = await create(api)
+    path = f"/api/v1/routines/{saved['id']}"
+    payload = completed_payload(api, routine_id=saved["id"])
+    completed = await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    assert completed.status_code == 201
+    result = completed.json()
+    history = (await api.client.get("/api/v1/sessions", auth=api.alice)).json()
+    assert (await api.client.delete(path)).status_code == 401
+    assert (await api.client.delete(path, auth=api.bob)).status_code == 404
+    assert (await api.client.get(path, auth=api.alice)).status_code == 200
+    assert (await api.client.delete(path, auth=api.alice)).status_code == 204
+    assert (await api.client.delete(path, auth=api.alice)).status_code == 204
+    assert (await api.client.delete(path, auth=api.bob)).status_code == 404
+    assert (await api.client.get("/api/v1/routines", auth=api.alice)).json()["items"] == []
+    assert (await api.client.get(path, auth=api.alice)).status_code == 404
+    assert (
+        await api.client.patch(path, auth=api.alice, json={"name": "Restore"})
+    ).status_code == 404
+    # Authorization/existence precedes unavailable storage for a deleted cover.
+    assert (await api.client.get(path + "/picture", auth=api.alice)).status_code == 404
+    assert (await api.client.delete(path + "/picture", auth=api.alice)).status_code == 404
+    assert (
+        await api.client.post(
+            path + "/picture", auth=api.alice, files={"file": ("cover.png", b"bad", "image/png")}
+        )
+    ).status_code == 404
+    assert (
+        await api.client.put(
+            "/api/v1/session-drafts/" + str(uuid4()),
+            auth=api.alice,
+            json={**draft_snapshot(api), "routine_id": saved["id"]},
+        )
+    ).status_code == 422
+    assert (
+        await api.client.post(
+            "/api/v1/sessions", auth=api.alice, json={**payload, "client_session_id": str(uuid4())}
+        )
+    ).status_code == 422
+    assert (await api.client.get("/api/v1/sessions", auth=api.alice)).json() == history
+    assert (
+        await api.client.get(f"/api/v1/sessions/{result['id']}", auth=api.alice)
+    ).json() == result
+    retried = await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    assert retried.status_code == 200
+    assert retried.json() == result
+    async with api.sessions() as session:
+        row = (
+            (await session.execute(sa.select(routine).where(routine.c.id == saved["id"])))
+            .mappings()
+            .one()
+        )
+        assert row["deleted_at"].tzinfo is not None
+        assert row["name"] == saved["name"]
+        assert (
+            await session.scalar(
+                sa.select(training_session.c.routine_id).where(
+                    training_session.c.id == result["id"]
+                )
+            )
+            == saved["id"]
+        )
+        assert (
+            await session.scalar(sa.select(sa.func.count()).select_from(routine_exercise))
+            == saved["exercise_count"]
+        )
+
+
+async def test_delete_routine_conflicts_with_active_draft_without_partial_changes(training_api):
+    api = training_api
+    saved = await create(api)
+    path = f"/api/v1/routines/{saved['id']}"
+    draft_path = "/api/v1/session-drafts/" + str(uuid4())
+    snapshot = {**draft_snapshot(api), "routine_id": saved["id"]}
+    assert (await api.client.put(draft_path, auth=api.alice, json=snapshot)).status_code == 200
+    async with api.sessions.begin() as session:
+        await session.execute(
+            routine.update()
+            .where(routine.c.id == saved["id"])
+            .values(picture_blob_name=f"routines/{api.alice_id}/{saved['id']}/retained.jpg")
+        )
+    before = (await api.client.get(path, auth=api.alice)).json()
+    assert (await api.client.delete(path, auth=api.alice)).status_code == 409
+    assert (await api.client.get(path, auth=api.alice)).json() == before
+    async with api.sessions() as session:
+        assert await session.scalar(sa.select(routine.c.deleted_at)) is None
+        assert await session.scalar(sa.select(routine.c.picture_blob_name)) is not None
+    assert (await api.client.delete(draft_path, auth=api.alice)).status_code == 204
+    # No storage configuration is necessary to retire a routine and clear its reference.
+    assert (await api.client.delete(path, auth=api.alice)).status_code == 204
+    async with api.sessions() as session:
+        assert await session.scalar(sa.select(routine.c.picture_blob_name)) is None
+
+
+@pytest.mark.parametrize("operation", ["save", "finish"])
+async def test_delete_serializes_with_draft_save_and_finish(training_api, monkeypatch, operation):
+    from app.features.training import sessions
+
+    api = training_api
+    saved = await create(api)
+    path = f"/api/v1/routines/{saved['id']}"
+    draft_path = "/api/v1/session-drafts/" + str(uuid4())
+    snapshot = {**draft_snapshot(api, confirmed=True), "routine_id": saved["id"]}
+    if operation == "finish":
+        assert (await api.client.put(draft_path, auth=api.alice, json=snapshot)).status_code == 200
+    validated, release = asyncio.Event(), asyncio.Event()
+    original = sessions.validate_sources
+
+    async def paused_sources(*args):
+        await original(*args)
+        validated.set()
+        await asyncio.wait_for(release.wait(), 5)
+
+    monkeypatch.setattr(sessions, "validate_sources", paused_sources)
+    request = (
+        api.client.put(draft_path, auth=api.alice, json=snapshot)
+        if operation == "save"
+        else api.client.post(
+            draft_path + "/finish", auth=api.alice, json={"ended_at": "2026-10-25T10:10:00Z"}
+        )
+    )
+    pending = asyncio.create_task(request)
+    removal = None
+    try:
+        await asyncio.wait_for(validated.wait(), 5)
+        removal = asyncio.create_task(api.client.delete(path, auth=api.alice))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(removal), 0.1)
+        release.set()
+        changed = await asyncio.wait_for(pending, 5)
+        assert changed.status_code == 200
+        deleted = await asyncio.wait_for(removal, 5)
+        assert deleted.status_code == (409 if operation == "save" else 204)
+        if operation == "finish":
+            repeated = await api.client.post(
+                draft_path + "/finish", auth=api.alice, json={"ended_at": "2026-10-25T10:10:00Z"}
+            )
+            assert repeated.status_code == 200
+            assert repeated.json() == changed.json()
+    finally:
+        release.set()
+        await asyncio.gather(
+            pending, *([removal] if removal is not None else []), return_exceptions=True
+        )
+
+
+async def test_deleted_routine_rejects_concurrent_new_draft(training_api, monkeypatch):
+    from app.features.training import deletion, drafts
+    from app.features.training.errors import InvalidSelection
+    from app.features.training.schemas import DraftSnapshot
+
+    api = training_api
+    saved = await create(api)
+    attempted = asyncio.Event()
+    original = drafts.lock_account
+
+    async def observed_lock(*args):
+        attempted.set()
+        await original(*args)
+
+    async def concurrent_save():
+        async with api.sessions() as draft_session:
+            return await drafts.save_draft(
+                draft_session,
+                api.alice_id,
+                uuid4(),
+                DraftSnapshot.model_validate({**draft_snapshot(api), "routine_id": saved["id"]}),
+            )
+
+    monkeypatch.setattr(drafts, "lock_account", observed_lock)
+    async with api.sessions() as session:
+        await original(session, api.alice_id)
+        pending = asyncio.create_task(concurrent_save())
+        try:
+            await asyncio.wait_for(attempted.wait(), 5)
+            await deletion.delete_routine(session, api.alice_id, saved["id"], None)
+            with pytest.raises(InvalidSelection):
+                await asyncio.wait_for(pending, 5)
+        finally:
+            await session.rollback()
+            await asyncio.gather(pending, return_exceptions=True)
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.alice)).json() is None
+
+
+async def test_delete_waits_for_parent_source_validation_lock(training_api):
+    from app.features.training.schemas import SessionCreate
+    from app.features.training.sessions import validate_sources
+
+    api = training_api
+    saved = await create(api)
+    async with api.sessions() as session:
+        await validate_sources(
+            session,
+            api.alice_id,
+            SessionCreate.model_validate(completed_payload(api, routine_id=saved["id"])),
+        )
+        pending = asyncio.create_task(
+            api.client.delete(f"/api/v1/routines/{saved['id']}", auth=api.alice)
+        )
+        try:
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(pending), 0.1)
+        finally:
+            await session.commit()
+        assert (await asyncio.wait_for(pending, 5)).status_code == 204
+
+
+async def test_delete_database_failure_retains_routine_and_cover_reference(
+    training_api, monkeypatch
+):
+    from app.features.training.deletion import delete_routine
+
+    api = training_api
+    saved = await create(api)
+    original_name = f"routines/{api.alice_id}/{saved['id']}/retained.jpg"
+    async with api.sessions.begin() as session:
+        await session.execute(
+            routine.update()
+            .where(routine.c.id == saved["id"])
+            .values(picture_blob_name=original_name)
+        )
+    async with api.sessions() as session:
+
+        async def failed_commit():
+            raise RuntimeError("synthetic deletion commit failure")
+
+        monkeypatch.setattr(session, "commit", failed_commit)
+        with pytest.raises(RuntimeError, match="synthetic deletion commit failure"):
+            await delete_routine(session, api.alice_id, saved["id"], None)
+    async with api.sessions() as session:
+        row = (
+            (await session.execute(sa.select(routine).where(routine.c.id == saved["id"])))
+            .mappings()
+            .one()
+        )
+        assert row["deleted_at"] is None
+        assert row["picture_blob_name"] == original_name
+    assert (
+        await api.client.get(f"/api/v1/routines/{saved['id']}", auth=api.alice)
+    ).status_code == 200

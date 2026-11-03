@@ -159,7 +159,7 @@ async def validate_sources(
     if data.routine_id is not None:
         owner = await session.scalar(
             sa.select(routine.c.user_id)
-            .where(routine.c.id == data.routine_id)
+            .where(routine.c.id == data.routine_id, routine.c.deleted_at.is_(None))
             .with_for_update(read=True)
         )
         if owner != user_id:
