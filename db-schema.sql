@@ -295,3 +295,73 @@ CREATE TABLE session_draft (
 );
 CREATE UNIQUE INDEX ix_session_draft_active_user ON session_draft (user_id)
     WHERE completed_session_id IS NULL;
+
+-- Sprint 2 posts and leagues: persistence only; API rules remain feature work.
+CREATE TABLE post (
+    id BIGSERIAL PRIMARY KEY,
+    text TEXT NOT NULL,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    -- Values: PUBLIC, PRIVATE, LEAGUE
+    visibility VARCHAR(7) NOT NULL,
+    -- Values: SESSION, LEAGUE_PENALTY
+    type VARCHAR(14) NOT NULL
+);
+
+CREATE TABLE file (
+    id BIGSERIAL PRIMARY KEY,
+    post_id BIGINT NOT NULL REFERENCES post(id),
+    "order" INTEGER NOT NULL,
+    -- Values: IMAGE, VIDEO
+    type VARCHAR(5) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    url TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    -- Size in bytes
+    file_size BIGINT NOT NULL
+);
+
+CREATE TABLE post_like (
+    post_id BIGINT NOT NULL REFERENCES post(id),
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    PRIMARY KEY (post_id, user_id)
+);
+
+CREATE TABLE post_comment (
+    id BIGSERIAL PRIMARY KEY,
+    post_id BIGINT NOT NULL REFERENCES post(id),
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    comment TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE TABLE league (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    created_by BIGINT NOT NULL REFERENCES users(id)
+);
+
+CREATE TABLE league_member (
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    league_id BIGINT NOT NULL REFERENCES league(id),
+    joined_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    PRIMARY KEY (user_id, league_id)
+);
+
+CREATE TABLE league_round (
+    id BIGSERIAL PRIMARY KEY,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    league_id BIGINT NOT NULL REFERENCES league(id)
+);
+
+CREATE TABLE league_score (
+    league_id BIGINT NOT NULL REFERENCES league(id),
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    round_id BIGINT NOT NULL REFERENCES league_round(id),
+    score INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    PRIMARY KEY (league_id, user_id, round_id)
+);

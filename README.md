@@ -178,8 +178,14 @@ uv run --locked --no-build alembic upgrade head
 uv run --locked --no-build alembic check
 ```
 
-Feature revisions belong in `migrations/versions/`. The migration chain creates all 20 tables from `db-schema.sql`, with SQLAlchemy metadata in
-`app/features/accounts/`, `nutrition/`, `training/` and `goals/`. Goals currently define persistence tables only. Nutrition provides personal food operations, and training implements routine/exercise APIs and completed-workout submission/history; ongoing recording uses owned resumable draft snapshots. Meal logging remains future feature work.
+Feature revisions belong in `migrations/versions/`. The migration chain creates all 29 tables from `db-schema.sql`, with SQLAlchemy metadata in
+`app/features/accounts/`, `nutrition/`, `training/`, `goals/`, `posts/` and `leagues/`. Goals currently define persistence tables only. Nutrition provides personal food operations, and training implements routine/exercise APIs and completed-workout submission/history; ongoing recording uses owned resumable draft snapshots. Meal logging remains future feature work.
+
+Revision `20261102_01` adds posts, attached files, likes, comments, leagues, memberships,
+rounds and per-user round scores. These are persistence models only; social/league APIs
+and business rules remain separate work. Its downgrade drops these eight tables and
+their data while retaining existing account, nutrition, training and goal tables.
+
 Existing account constraints remain in place, including the user-status CHECK.
 
 Revision `20261021_01` converts existing account UUIDs to generated BIGINT IDs while
