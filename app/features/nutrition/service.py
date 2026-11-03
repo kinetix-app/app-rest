@@ -4,12 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.features.accounts.models import User
 from app.features.goals.models import AccountObjective
 from app.features.nutrition.errors import (
-    FoodInUseError,
     FoodNotFoundError,
     MealItemNotFoundError,
     NutritionGoalExistsError,
     NutritionGoalNotFoundError,
-    RecipeInUseError,
     RecipeNotFoundError,
 )
 from app.features.nutrition.models import (
@@ -77,7 +75,17 @@ async def delete_food(
         )
     ).scalar_one_or_none()
     if is_used is not None:
-        raise FoodInUseError
+        try:
+            await db.execute(
+                update(food)
+                .where(food.c.id == food_id, food.c.user_id == user_id)
+                .values(is_active=False)
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        return
     stmt = (
         delete(food)
         .where(
@@ -245,7 +253,17 @@ async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> None:
         await db.execute(select(meal_item.c.id).where(meal_item.c.recipe_id == recipe_id).limit(1))
     ).scalar_one_or_none()
     if is_logged is not None:
-        raise RecipeInUseError
+        try:
+            await db.execute(
+                update(recipe)
+                .where(recipe.c.id == recipe_id, recipe.c.user_id == user_id)
+                .values(is_active=False)
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        return
     try:
         await db.execute(
             delete(recipe_ingredient).where(recipe_ingredient.c.recipe_id == recipe_id)

@@ -155,8 +155,10 @@ async def test_recipes_calculate_macros_and_protect_owned_foods(nutrition_api):
     assert decimal(recipe["fats"]) == Decimal("0.5")
     assert (await api.client.get("/api/v1/recipes", auth=api.bob)).json() == []
     in_use_food = await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
-    assert in_use_food.status_code == 409
-    assert in_use_food.json() == {"detail": "A food used in a recipe or diary cannot be deleted"}
+    assert in_use_food.status_code == 204
+    assert (
+        await api.client.get("/api/v1/foods", auth=api.alice, params={"name": "rice"})
+    ).json() == []
     missing_recipe = await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.bob)
     assert missing_recipe.status_code == 404
     assert missing_recipe.json() == {"detail": "Recipe not found"}
@@ -226,13 +228,17 @@ async def test_diary_records_food_and_recipe_totals_and_enforces_ownership(nutri
         )
     ).status_code == 204
     in_use_recipe = await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.alice)
-    assert in_use_recipe.status_code == 409
-    assert in_use_recipe.json() == {
-        "detail": "A recipe already logged in the diary cannot be deleted"
-    }
+    assert in_use_recipe.status_code == 204
+    assert (await api.client.get("/api/v1/recipes", auth=api.alice)).json() == []
     assert (
         await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
-    ).status_code == 409
+    ).status_code == 204
+    assert (
+        await api.client.get("/api/v1/foods", auth=api.alice, params={"name": "yogurt"})
+    ).json() == []
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("75")
     missing_food = await api.client.post(
         "/api/v1/nutrition/meal-items",
         auth=api.bob,

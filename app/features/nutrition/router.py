@@ -6,12 +6,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
 from app.features.nutrition.errors import (
-    FoodInUseError,
     FoodNotFoundError,
     MealItemNotFoundError,
     NutritionGoalExistsError,
     NutritionGoalNotFoundError,
-    RecipeInUseError,
     RecipeNotFoundError,
 )
 from app.features.nutrition.schemas import (
@@ -132,11 +130,6 @@ async def remove_recipe(recipe_id: int, user: CurrentUser, session: DatabaseSess
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
         ) from exc
-    except RecipeInUseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A recipe already logged in the diary cannot be deleted",
-        ) from exc
 
 
 meal_router = APIRouter(prefix="/nutrition", tags=["nutrition"])
@@ -204,11 +197,6 @@ async def remove_food(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=FOOD_NOT_FOUND,
-        ) from exc
-    except FoodInUseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A food used in a recipe or diary cannot be deleted",
         ) from exc
 
 
