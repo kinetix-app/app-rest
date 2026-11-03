@@ -23,6 +23,7 @@ from app.features.nutrition.schemas import (
     NutritionGoalResponse,
     RecipeCreate,
     RecipeMealItemCreate,
+    RecipePatch,
     RecipeResponse,
 )
 from app.features.nutrition.service import (
@@ -41,6 +42,7 @@ from app.features.nutrition.service import (
     search_foods,
     update_food,
     update_nutrition_goal,
+    update_recipe,
 )
 
 router = APIRouter(prefix="/foods", tags=["nutrition"])
@@ -126,6 +128,27 @@ async def read_recipes(
 async def remove_recipe(recipe_id: int, user: CurrentUser, session: DatabaseSession) -> None:
     try:
         await delete_recipe(session, user.id, recipe_id)
+    except RecipeNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
+        ) from exc
+
+
+@recipe_router.patch("/{recipe_id}")
+async def patch_recipe(
+    recipe_id: int,
+    data: RecipePatch,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> RecipeResponse:
+    try:
+        return await update_recipe(session, user.id, recipe_id, data)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except FoodNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FOOD_NOT_FOUND) from exc
     except RecipeNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"

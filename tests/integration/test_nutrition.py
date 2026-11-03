@@ -114,6 +114,18 @@ async def test_common_foods_and_recipes_are_visible_but_not_owned(nutrition_api)
     assert (
         await api.client.delete(f"/api/v1/recipes/{common_recipe_id}", auth=api.alice)
     ).status_code == 404
+    assert (
+        await api.client.patch(
+            f"/api/v1/foods/{common_food_id}", auth=api.alice, json={"name": "Changed"}
+        )
+    ).status_code == 404
+    assert (
+        await api.client.patch(
+            f"/api/v1/recipes/{common_recipe_id}",
+            auth=api.alice,
+            json={"name": "Changed"},
+        )
+    ).status_code == 404
 
 
 def food_payload(name="Oats", **overrides):
@@ -152,6 +164,93 @@ async def create_recipe(api, food_id, name="Breakfast bowl", servings=2):
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+async def test_food_and_recipe_edits_version_only_used_sources(nutrition_api):
+    api = nutrition_api
+    original_food = await create_food(
+        api, "Versioned oats", calories="100", protein="10", carbohydrates="10", fats="2"
+    )
+    unused_food_edit = await api.client.patch(
+        f"/api/v1/foods/{original_food['id']}", auth=api.alice, json={"brand": "First edit"}
+    )
+    assert unused_food_edit.status_code == 200
+    assert unused_food_edit.json()["id"] == original_food["id"]
+
+    day = date(2026, 11, 3).isoformat()
+    assert (
+        await api.client.post(
+            "/api/v1/nutrition/meal-items",
+            auth=api.alice,
+            json={
+                "date": day,
+                "meal_type": "breakfast",
+                "food_id": original_food["id"],
+                "quantity_grams": "100",
+            },
+        )
+    ).status_code == 201
+    used_food_edit = await api.client.patch(
+        f"/api/v1/foods/{original_food['id']}",
+        auth=api.alice,
+        json={"name": "New oats", "calories": "200"},
+    )
+    assert used_food_edit.status_code == 200
+    new_food = used_food_edit.json()
+    assert new_food["id"] != original_food["id"]
+    assert decimal(new_food["calories"]) == Decimal("200")
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("100")
+
+    original_recipe = await create_recipe(api, new_food["id"], name="Versioned bowl", servings=1)
+    unused_recipe_edit = await api.client.patch(
+        f"/api/v1/recipes/{original_recipe['id']}",
+        auth=api.alice,
+        json={"servings": 2},
+    )
+    assert unused_recipe_edit.status_code == 200
+    assert unused_recipe_edit.json()["id"] == original_recipe["id"]
+    assert (
+        await api.client.post(
+            "/api/v1/nutrition/recipe-items",
+            auth=api.alice,
+            json={
+                "date": day,
+                "meal_type": "dinner",
+                "recipe_id": original_recipe["id"],
+                "servings": "1",
+            },
+        )
+    ).status_code == 201
+    used_recipe_edit = await api.client.patch(
+        f"/api/v1/recipes/{original_recipe['id']}",
+        auth=api.alice,
+        json={
+            "name": "New bowl",
+            "ingredients": [{"food_id": new_food["id"], "quantity_grams": "200"}],
+        },
+    )
+    assert used_recipe_edit.status_code == 200
+    assert used_recipe_edit.json()["id"] != original_recipe["id"]
+    assert decimal(used_recipe_edit.json()["calories"]) == Decimal("200")
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("200")
+
+    async with api.sessions() as session:
+        assert (
+            await session.scalar(
+                sa.select(food.c.is_active).where(food.c.id == original_food["id"])
+            )
+            is False
+        )
+        assert (
+            await session.scalar(
+                sa.select(recipe.c.is_active).where(recipe.c.id == original_recipe["id"])
+            )
+            is False
+        )
 
 
 async def test_food_crud_search_validation_and_isolation(nutrition_api):
@@ -202,6 +301,9 @@ async def test_recipes_calculate_macros_and_protect_owned_foods(nutrition_api):
     assert decimal(recipe["protein"]) == Decimal("3.5")
     assert decimal(recipe["carbohydrates"]) == Decimal("40")
     assert decimal(recipe["fats"]) == Decimal("0.5")
+    assert recipe["ingredients"] == [
+        {"food_id": food["id"], "name": "Rice", "quantity_grams": "100.00"}
+    ]
     assert (await api.client.get("/api/v1/recipes", auth=api.bob)).json() == []
     in_use_food = await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
     assert in_use_food.status_code == 204

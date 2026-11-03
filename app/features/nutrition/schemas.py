@@ -43,6 +43,16 @@ class RecipeCreate(BaseModel):
     ingredients: list[RecipeIngredientInput] = Field(min_length=1)
 
 
+class RecipePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=150)
+    servings: int | None = Field(default=None, ge=1, le=100)
+    ingredients: list[RecipeIngredientInput] | None = Field(default=None, min_length=1)
+
+
+class RecipeIngredientResponse(RecipeIngredientInput):
+    name: str
+
+
 class RecipeResponse(BaseModel):
     id: int
     user_id: int | None
@@ -52,6 +62,7 @@ class RecipeResponse(BaseModel):
     protein: Decimal
     carbohydrates: Decimal
     fats: Decimal
+    ingredients: list[RecipeIngredientResponse]
 
 
 class NutritionGoalResponse(BaseModel):
