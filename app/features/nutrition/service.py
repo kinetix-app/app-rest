@@ -23,6 +23,7 @@ from app.features.nutrition.schemas import (
     FoodCreate,
     FoodPatch,
     MealItemCreate,
+    MealItemPatch,
     NutritionGoalInput,
     RecipeCreate,
     RecipeMealItemCreate,
@@ -502,6 +503,38 @@ async def delete_meal_item(db: AsyncSession, user_id: int, meal_item_id: int) ->
     await db.commit()
     if deleted is None:
         raise MealItemNotFoundError
+
+
+async def update_meal_item(
+    db: AsyncSession, user_id: int, meal_item_id: int, data: MealItemPatch
+) -> None:
+    owned_item = (
+        (
+            await db.execute(
+                select(meal_item)
+                .select_from(meal_item.join(meal).join(nutrition_day))
+                .where(meal_item.c.id == meal_item_id, nutrition_day.c.user_id == user_id)
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if owned_item is None:
+        raise MealItemNotFoundError
+    if owned_item["food_id"] is not None:
+        if data.quantity_grams is None:
+            raise ValueError("Food entries require quantity_grams")
+        changes = {"quantity_grams": data.quantity_grams}
+    else:
+        if data.servings is None:
+            raise ValueError("Recipe entries require servings")
+        changes = {"servings": data.servings}
+    try:
+        await db.execute(update(meal_item).where(meal_item.c.id == meal_item_id).values(**changes))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
 
 async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate):

@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.features.goals.schemas import Objective
 
@@ -89,6 +89,17 @@ class MealItemCreate(BaseModel):
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
     food_id: int = Field(gt=0)
     quantity_grams: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
+
+
+class MealItemPatch(BaseModel):
+    quantity_grams: Decimal | None = Field(default=None, gt=0, max_digits=8, decimal_places=2)
+    servings: Decimal | None = Field(default=None, gt=0, max_digits=8, decimal_places=2)
+
+    @model_validator(mode="after")
+    def exactly_one_quantity(self):
+        if (self.quantity_grams is None) == (self.servings is None):
+            raise ValueError("Provide exactly one of quantity_grams or servings")
+        return self
 
 
 class RecipeMealItemCreate(BaseModel):

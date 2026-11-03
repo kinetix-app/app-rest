@@ -365,6 +365,37 @@ async def test_diary_records_food_and_recipe_totals_and_enforces_ownership(nutri
     assert decimal(body["carbohydrates"]) == Decimal("11.25")
     assert decimal(body["fats"]) == Decimal("9")
     assert len(body["items"]) == 2
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{food_item.json()['id']}",
+            auth=api.alice,
+            json={"quantity_grams": "100"},
+        )
+    ).status_code == 204
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{recipe_item.json()['id']}",
+            auth=api.alice,
+            json={"servings": "1"},
+        )
+    ).status_code == 204
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("150")
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{food_item.json()['id']}",
+            auth=api.alice,
+            json={"servings": "1"},
+        )
+    ).status_code == 422
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{food_item.json()['id']}",
+            auth=api.bob,
+            json={"quantity_grams": "50"},
+        )
+    ).status_code == 404
     assert (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.bob)).json()[
         "items"
     ] == []
@@ -389,7 +420,7 @@ async def test_diary_records_food_and_recipe_totals_and_enforces_ownership(nutri
     ).json() == []
     assert decimal(
         (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
-    ) == Decimal("75")
+    ) == Decimal("50")
     missing_food = await api.client.post(
         "/api/v1/nutrition/meal-items",
         auth=api.bob,

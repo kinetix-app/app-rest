@@ -17,6 +17,7 @@ from app.features.nutrition.schemas import (
     FoodPatch,
     FoodResponse,
     MealItemCreate,
+    MealItemPatch,
     MealItemResponse,
     NutritionDayResponse,
     NutritionGoalInput,
@@ -41,6 +42,7 @@ from app.features.nutrition.service import (
     get_recipes,
     search_foods,
     update_food,
+    update_meal_item,
     update_nutrition_goal,
     update_recipe,
 )
@@ -172,6 +174,22 @@ async def post_meal_item(
 async def remove_meal_item(meal_item_id: int, user: CurrentUser, session: DatabaseSession) -> None:
     try:
         await delete_meal_item(session, user.id, meal_item_id)
+    except MealItemNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Meal item not found"
+        ) from exc
+
+
+@meal_router.patch("/meal-items/{meal_item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def patch_meal_item(
+    meal_item_id: int, data: MealItemPatch, user: CurrentUser, session: DatabaseSession
+) -> None:
+    try:
+        await update_meal_item(session, user.id, meal_item_id, data)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     except MealItemNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Meal item not found"
