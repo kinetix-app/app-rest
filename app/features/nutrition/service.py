@@ -118,7 +118,7 @@ async def get_food(
 
 
 async def search_foods(db: AsyncSession, user_id: int, name: str | None = None):
-    stmt = select(food).where(food.c.user_id == user_id)
+    stmt = select(food).where(food.c.user_id == user_id, food.c.is_active.is_(True))
     if name and name.strip():
         result = await db.execute(
             stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
@@ -135,7 +135,11 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
     owned_food_ids = set(
         (
             await db.execute(
-                select(food.c.id).where(food.c.user_id == user_id, food.c.id.in_(food_ids))
+                select(food.c.id).where(
+                    food.c.user_id == user_id,
+                    food.c.is_active.is_(True),
+                    food.c.id.in_(food_ids),
+                )
             )
         )
         .scalars()
@@ -171,10 +175,21 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
     return (await get_recipes(db, user_id, recipe_id=created["id"]))[0]
 
 
-async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = None):
-    conditions = [recipe.c.user_id == user_id]
+async def get_recipes(
+    db: AsyncSession, user_id: int, recipe_id: int | None = None, name: str | None = None
+):
+    conditions = [recipe.c.user_id == user_id, recipe.c.is_active.is_(True)]
     if recipe_id is not None:
         conditions.append(recipe.c.id == recipe_id)
+    if name and name.strip():
+        conditions.append(recipe.c.name.icontains(name.strip(), autoescape=True))
+    ordering = (recipe.c.name, recipe.c.id) if name and name.strip() else (func.random(),)
+    selected_recipe_ids = (
+        select(recipe.c.id)
+        .where(*conditions)
+        .order_by(*ordering)
+        .limit(20 if name and name.strip() else 3)
+    )
     rows = (
         (
             await db.execute(
@@ -190,7 +205,7 @@ async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = No
                     food.c.fats,
                 )
                 .select_from(recipe.join(recipe_ingredient).join(food))
-                .where(*conditions)
+                .where(recipe.c.id.in_(selected_recipe_ids))
                 .order_by(recipe.c.name, recipe.c.id)
             )
         )
@@ -350,7 +365,15 @@ async def delete_meal_item(db: AsyncSession, user_id: int, meal_item_id: int) ->
 
 async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate):
     source = (
-        (await db.execute(select(food).where(food.c.id == data.food_id, food.c.user_id == user_id)))
+        (
+            await db.execute(
+                select(food).where(
+                    food.c.id == data.food_id,
+                    food.c.user_id == user_id,
+                    food.c.is_active.is_(True),
+                )
+            )
+        )
         .mappings()
         .one_or_none()
     )

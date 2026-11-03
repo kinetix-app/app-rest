@@ -116,8 +116,12 @@ async def post_recipe(
 
 
 @recipe_router.get("")
-async def read_recipes(user: CurrentUser, session: DatabaseSession) -> list[RecipeResponse]:
-    return await get_recipes(session, user.id)
+async def read_recipes(
+    user: CurrentUser,
+    session: DatabaseSession,
+    name: Annotated[str | None, Query(min_length=1, max_length=150)] = None,
+) -> list[RecipeResponse]:
+    return await get_recipes(session, user.id, name=name)
 
 
 @recipe_router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
