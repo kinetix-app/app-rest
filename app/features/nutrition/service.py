@@ -1,4 +1,4 @@
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
@@ -115,7 +115,7 @@ async def get_food(
 ):
     stmt = select(food).where(
         food.c.id == food_id,
-        food.c.user_id == user_id,
+        or_(food.c.user_id == user_id, food.c.user_id.is_(None)),
     )
 
     result = await db.execute(stmt)
@@ -126,7 +126,9 @@ async def get_food(
 
 
 async def search_foods(db: AsyncSession, user_id: int, name: str | None = None):
-    stmt = select(food).where(food.c.user_id == user_id, food.c.is_active.is_(True))
+    stmt = select(food).where(
+        or_(food.c.user_id == user_id, food.c.user_id.is_(None)), food.c.is_active.is_(True)
+    )
     if name and name.strip():
         result = await db.execute(
             stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
@@ -144,7 +146,7 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
         (
             await db.execute(
                 select(food.c.id).where(
-                    food.c.user_id == user_id,
+                    or_(food.c.user_id == user_id, food.c.user_id.is_(None)),
                     food.c.is_active.is_(True),
                     food.c.id.in_(food_ids),
                 )
@@ -186,7 +188,10 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
 async def get_recipes(
     db: AsyncSession, user_id: int, recipe_id: int | None = None, name: str | None = None
 ):
-    conditions = [recipe.c.user_id == user_id, recipe.c.is_active.is_(True)]
+    conditions = [
+        or_(recipe.c.user_id == user_id, recipe.c.user_id.is_(None)),
+        recipe.c.is_active.is_(True),
+    ]
     if recipe_id is not None:
         conditions.append(recipe.c.id == recipe_id)
     if name and name.strip():
@@ -387,7 +392,7 @@ async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate)
             await db.execute(
                 select(food).where(
                     food.c.id == data.food_id,
-                    food.c.user_id == user_id,
+                    or_(food.c.user_id == user_id, food.c.user_id.is_(None)),
                     food.c.is_active.is_(True),
                 )
             )

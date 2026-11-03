@@ -19,7 +19,7 @@ class FoodCreate(BaseModel):
 
 class FoodResponse(FoodCreate):
     id: int
-    user_id: int
+    user_id: int | None
 
 
 class FoodPatch(BaseModel):
@@ -45,7 +45,7 @@ class RecipeCreate(BaseModel):
 
 class RecipeResponse(BaseModel):
     id: int
-    user_id: int
+    user_id: int | None
     name: str
     servings: int
     calories: Decimal

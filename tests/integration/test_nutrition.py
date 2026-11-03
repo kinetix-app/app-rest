@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
+from app.features.nutrition.models import food, recipe, recipe_ingredient
 from app.main import create_app
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
@@ -59,12 +60,60 @@ async def nutrition_api(integration_url):
             ) as client:
                 alice = httpx.BasicAuth("alice", "password")
                 bob = httpx.BasicAuth("bob", "password")
-                yield SimpleNamespace(client=client, alice=alice, bob=bob)
+                yield SimpleNamespace(client=client, alice=alice, bob=bob, sessions=sessions)
     finally:
         await engine.dispose()
         async with admin.begin() as connection:
             await connection.execute(sa.text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await admin.dispose()
+
+
+async def test_common_foods_and_recipes_are_visible_but_not_owned(nutrition_api):
+    api = nutrition_api
+    async with api.sessions.begin() as session:
+        common_food_id = (
+            await session.execute(
+                food.insert()
+                .values(
+                    user_id=None,
+                    name="Common oats",
+                    calories=370,
+                    protein=13,
+                    carbohydrates=60,
+                    fats=7,
+                )
+                .returning(food.c.id)
+            )
+        ).scalar_one()
+        common_recipe_id = (
+            await session.execute(
+                recipe.insert()
+                .values(user_id=None, name="Common porridge", servings=1)
+                .returning(recipe.c.id)
+            )
+        ).scalar_one()
+        await session.execute(
+            recipe_ingredient.insert().values(
+                recipe_id=common_recipe_id, food_id=common_food_id, quantity_grams=100
+            )
+        )
+
+    for auth in (api.alice, api.bob):
+        foods = await api.client.get("/api/v1/foods", auth=auth, params={"name": "Common oats"})
+        assert foods.status_code == 200
+        assert foods.json()[0]["user_id"] is None
+        recipes = await api.client.get(
+            "/api/v1/recipes", auth=auth, params={"name": "Common porridge"}
+        )
+        assert recipes.status_code == 200
+        assert recipes.json()[0]["user_id"] is None
+
+    assert (
+        await api.client.delete(f"/api/v1/foods/{common_food_id}", auth=api.alice)
+    ).status_code == 404
+    assert (
+        await api.client.delete(f"/api/v1/recipes/{common_recipe_id}", auth=api.alice)
+    ).status_code == 404
 
 
 def food_payload(name="Oats", **overrides):
