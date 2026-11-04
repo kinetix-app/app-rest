@@ -1,15 +1,13 @@
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
 from app.features.goals.models import AccountObjective
 from app.features.nutrition.errors import (
-    FoodInUseError,
     FoodNotFoundError,
     MealItemNotFoundError,
     NutritionGoalExistsError,
     NutritionGoalNotFoundError,
-    RecipeInUseError,
     RecipeNotFoundError,
 )
 from app.features.nutrition.models import (
@@ -25,9 +23,11 @@ from app.features.nutrition.schemas import (
     FoodCreate,
     FoodPatch,
     MealItemCreate,
+    MealItemPatch,
     NutritionGoalInput,
     RecipeCreate,
     RecipeMealItemCreate,
+    RecipePatch,
 )
 
 
@@ -77,7 +77,17 @@ async def delete_food(
         )
     ).scalar_one_or_none()
     if is_used is not None:
-        raise FoodInUseError
+        try:
+            await db.execute(
+                update(food)
+                .where(food.c.id == food_id, food.c.user_id == user_id)
+                .values(is_active=False)
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        return
     stmt = (
         delete(food)
         .where(
@@ -107,7 +117,7 @@ async def get_food(
 ):
     stmt = select(food).where(
         food.c.id == food_id,
-        food.c.user_id == user_id,
+        or_(food.c.user_id == user_id, food.c.user_id.is_(None)),
     )
 
     result = await db.execute(stmt)
@@ -118,15 +128,12 @@ async def get_food(
 
 
 async def search_foods(db: AsyncSession, user_id: int, name: str | None = None):
-    stmt = select(food).where(food.c.user_id == user_id)
+    stmt = select(food).where(
+        or_(food.c.user_id == user_id, food.c.user_id.is_(None)), food.c.is_active.is_(True)
+    )
     if name and name.strip():
-        result = await db.execute(
-            stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
-            .order_by(food.c.name, food.c.id)
-            .limit(20)
-        )
-    else:
-        result = await db.execute(stmt.order_by(func.random()).limit(3))
+        stmt = stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
+    result = await db.execute(stmt.order_by(food.c.name, food.c.id))
     return result.mappings().all()
 
 
@@ -135,7 +142,11 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
     owned_food_ids = set(
         (
             await db.execute(
-                select(food.c.id).where(food.c.user_id == user_id, food.c.id.in_(food_ids))
+                select(food.c.id).where(
+                    or_(food.c.user_id == user_id, food.c.user_id.is_(None)),
+                    food.c.is_active.is_(True),
+                    food.c.id.in_(food_ids),
+                )
             )
         )
         .scalars()
@@ -171,10 +182,20 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
     return (await get_recipes(db, user_id, recipe_id=created["id"]))[0]
 
 
-async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = None):
-    conditions = [recipe.c.user_id == user_id]
+async def get_recipes(
+    db: AsyncSession, user_id: int, recipe_id: int | None = None, name: str | None = None
+):
+    conditions = [
+        or_(recipe.c.user_id == user_id, recipe.c.user_id.is_(None)),
+        recipe.c.is_active.is_(True),
+    ]
     if recipe_id is not None:
         conditions.append(recipe.c.id == recipe_id)
+    if name and name.strip():
+        conditions.append(recipe.c.name.icontains(name.strip(), autoescape=True))
+    selected_recipe_ids = (
+        select(recipe.c.id).where(*conditions).order_by(recipe.c.name, recipe.c.id)
+    )
     rows = (
         (
             await db.execute(
@@ -183,14 +204,16 @@ async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = No
                     recipe.c.user_id,
                     recipe.c.name,
                     recipe.c.servings,
+                    recipe_ingredient.c.food_id,
                     recipe_ingredient.c.quantity_grams,
+                    food.c.name.label("food_name"),
                     food.c.calories,
                     food.c.protein,
                     food.c.carbohydrates,
                     food.c.fats,
                 )
                 .select_from(recipe.join(recipe_ingredient).join(food))
-                .where(*conditions)
+                .where(recipe.c.id.in_(selected_recipe_ids))
                 .order_by(recipe.c.name, recipe.c.id)
             )
         )
@@ -210,9 +233,17 @@ async def get_recipes(db: AsyncSession, user_id: int, recipe_id: int | None = No
                 "protein": 0,
                 "carbohydrates": 0,
                 "fats": 0,
+                "ingredients": [],
             },
         )
         factor = row["quantity_grams"] / 100 / row["servings"]
+        item["ingredients"].append(
+            {
+                "food_id": row["food_id"],
+                "name": row["food_name"],
+                "quantity_grams": row["quantity_grams"],
+            }
+        )
         for macro in ("calories", "protein", "carbohydrates", "fats"):
             item[macro] += row[macro] * factor
     return list(recipes.values())
@@ -230,7 +261,17 @@ async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> None:
         await db.execute(select(meal_item.c.id).where(meal_item.c.recipe_id == recipe_id).limit(1))
     ).scalar_one_or_none()
     if is_logged is not None:
-        raise RecipeInUseError
+        try:
+            await db.execute(
+                update(recipe)
+                .where(recipe.c.id == recipe_id, recipe.c.user_id == user_id)
+                .values(is_active=False)
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        return
     try:
         await db.execute(
             delete(recipe_ingredient).where(recipe_ingredient.c.recipe_id == recipe_id)
@@ -248,6 +289,113 @@ async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> None:
         raise
     if deleted_id is None:
         raise RecipeNotFoundError
+
+
+async def update_recipe(db: AsyncSession, user_id: int, recipe_id: int, data: RecipePatch):
+    changes = data.model_dump(exclude_unset=True)
+    if any(value is None for value in changes.values()):
+        raise ValueError("Recipe fields cannot be null")
+
+    source = (
+        (
+            await db.execute(
+                select(recipe).where(
+                    recipe.c.id == recipe_id,
+                    recipe.c.user_id == user_id,
+                    recipe.c.is_active.is_(True),
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if source is None:
+        raise RecipeNotFoundError
+    if not changes:
+        return (await get_recipes(db, user_id, recipe_id=recipe_id))[0]
+
+    current_ingredients = (
+        (
+            await db.execute(
+                select(
+                    recipe_ingredient.c.food_id,
+                    recipe_ingredient.c.quantity_grams,
+                ).where(recipe_ingredient.c.recipe_id == recipe_id)
+            )
+        )
+        .mappings()
+        .all()
+    )
+    ingredients = changes.get("ingredients", current_ingredients)
+    if "ingredients" in changes:
+        food_ids = {ingredient.food_id for ingredient in data.ingredients or []}
+        available_ids = set(
+            (
+                await db.execute(
+                    select(food.c.id).where(
+                        food.c.id.in_(food_ids),
+                        or_(food.c.user_id == user_id, food.c.user_id.is_(None)),
+                        food.c.is_active.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if available_ids != food_ids:
+            raise FoodNotFoundError
+
+    is_used = await db.scalar(
+        select(meal_item.c.id).where(meal_item.c.recipe_id == recipe_id).limit(1)
+    )
+    recipe_values = {
+        "name": changes.get("name", source["name"]),
+        "servings": changes.get("servings", source["servings"]),
+    }
+    try:
+        if is_used is not None:
+            await db.execute(update(recipe).where(recipe.c.id == recipe_id).values(is_active=False))
+            new_recipe_id = (
+                await db.execute(
+                    insert(recipe)
+                    .values(
+                        user_id=user_id,
+                        description=source["description"],
+                        instructions=source["instructions"],
+                        **recipe_values,
+                    )
+                    .returning(recipe.c.id)
+                )
+            ).scalar_one()
+        else:
+            new_recipe_id = recipe_id
+            await db.execute(update(recipe).where(recipe.c.id == recipe_id).values(**recipe_values))
+            if "ingredients" in changes:
+                await db.execute(
+                    delete(recipe_ingredient).where(recipe_ingredient.c.recipe_id == recipe_id)
+                )
+
+        if is_used is not None or "ingredients" in changes:
+            await db.execute(
+                insert(recipe_ingredient),
+                [
+                    {
+                        "recipe_id": new_recipe_id,
+                        "food_id": ingredient.food_id
+                        if hasattr(ingredient, "food_id")
+                        else ingredient["food_id"],
+                        "quantity_grams": ingredient.quantity_grams
+                        if hasattr(ingredient, "quantity_grams")
+                        else ingredient["quantity_grams"],
+                    }
+                    for ingredient in ingredients
+                ],
+            )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return (await get_recipes(db, user_id, recipe_id=new_recipe_id))[0]
 
 
 async def get_or_create_meal(db: AsyncSession, user_id: int, day_date, meal_type: str):
@@ -348,9 +496,49 @@ async def delete_meal_item(db: AsyncSession, user_id: int, meal_item_id: int) ->
         raise MealItemNotFoundError
 
 
+async def update_meal_item(
+    db: AsyncSession, user_id: int, meal_item_id: int, data: MealItemPatch
+) -> None:
+    owned_item = (
+        (
+            await db.execute(
+                select(meal_item)
+                .select_from(meal_item.join(meal).join(nutrition_day))
+                .where(meal_item.c.id == meal_item_id, nutrition_day.c.user_id == user_id)
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if owned_item is None:
+        raise MealItemNotFoundError
+    if owned_item["food_id"] is not None:
+        if data.quantity_grams is None:
+            raise ValueError("Food entries require quantity_grams")
+        changes = {"quantity_grams": data.quantity_grams}
+    else:
+        if data.servings is None:
+            raise ValueError("Recipe entries require servings")
+        changes = {"servings": data.servings}
+    try:
+        await db.execute(update(meal_item).where(meal_item.c.id == meal_item_id).values(**changes))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+
 async def create_meal_item(db: AsyncSession, user_id: int, data: MealItemCreate):
     source = (
-        (await db.execute(select(food).where(food.c.id == data.food_id, food.c.user_id == user_id)))
+        (
+            await db.execute(
+                select(food).where(
+                    food.c.id == data.food_id,
+                    or_(food.c.user_id == user_id, food.c.user_id.is_(None)),
+                    food.c.is_active.is_(True),
+                )
+            )
+        )
         .mappings()
         .one_or_none()
     )
@@ -497,29 +685,78 @@ async def update_food(
     if any(changes.get(field, 0) is None for field in required):
         raise ValueError("Required fields cannot be null")
 
-    if not changes:
-        return await get_food(db, user_id, food_id)
-
-    stmt = (
-        update(food)
-        .where(
-            food.c.id == food_id,
-            food.c.user_id == user_id,
-        )
-        .values(**changes)
-        .returning(food)
-    )
-
     try:
-        result = await db.execute(stmt)
-        updated = result.mappings().one_or_none()
+        source = (
+            (
+                await db.execute(
+                    select(food).where(
+                        food.c.id == food_id,
+                        food.c.user_id == user_id,
+                        food.c.is_active.is_(True),
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if source is None:
+            raise FoodNotFoundError
+        if not changes:
+            return source
+
+        is_used = (
+            await db.execute(
+                select(meal_item.c.id)
+                .where(meal_item.c.food_id == food_id)
+                .union(select(recipe_ingredient.c.id).where(recipe_ingredient.c.food_id == food_id))
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if is_used is None:
+            updated = (
+                (
+                    await db.execute(
+                        update(food)
+                        .where(food.c.id == food_id, food.c.user_id == user_id)
+                        .values(**changes)
+                        .returning(food)
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        else:
+            await db.execute(update(food).where(food.c.id == food_id).values(is_active=False))
+            editable_fields = (
+                "name",
+                "brand",
+                "calories",
+                "protein",
+                "carbohydrates",
+                "fats",
+                "barcode",
+            )
+            updated = (
+                (
+                    await db.execute(
+                        insert(food)
+                        .values(
+                            user_id=user_id,
+                            **{
+                                field: changes.get(field, source[field])
+                                for field in editable_fields
+                            },
+                        )
+                        .returning(food)
+                    )
+                )
+                .mappings()
+                .one()
+            )
         await db.commit()
     except Exception:
         await db.rollback()
         raise
-
-    if updated is None:
-        raise FoodNotFoundError
     return updated
 
 

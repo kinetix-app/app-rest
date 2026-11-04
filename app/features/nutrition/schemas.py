@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.features.goals.schemas import Objective
 
@@ -19,7 +19,7 @@ class FoodCreate(BaseModel):
 
 class FoodResponse(FoodCreate):
     id: int
-    user_id: int
+    user_id: int | None
 
 
 class FoodPatch(BaseModel):
@@ -43,15 +43,26 @@ class RecipeCreate(BaseModel):
     ingredients: list[RecipeIngredientInput] = Field(min_length=1)
 
 
+class RecipePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=150)
+    servings: int | None = Field(default=None, ge=1, le=100)
+    ingredients: list[RecipeIngredientInput] | None = Field(default=None, min_length=1)
+
+
+class RecipeIngredientResponse(RecipeIngredientInput):
+    name: str
+
+
 class RecipeResponse(BaseModel):
     id: int
-    user_id: int
+    user_id: int | None
     name: str
     servings: int
     calories: Decimal
     protein: Decimal
     carbohydrates: Decimal
     fats: Decimal
+    ingredients: list[RecipeIngredientResponse]
 
 
 class NutritionGoalResponse(BaseModel):
@@ -78,6 +89,17 @@ class MealItemCreate(BaseModel):
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
     food_id: int = Field(gt=0)
     quantity_grams: Decimal = Field(gt=0, max_digits=8, decimal_places=2)
+
+
+class MealItemPatch(BaseModel):
+    quantity_grams: Decimal | None = Field(default=None, gt=0, max_digits=8, decimal_places=2)
+    servings: Decimal | None = Field(default=None, gt=0, max_digits=8, decimal_places=2)
+
+    @model_validator(mode="after")
+    def exactly_one_quantity(self):
+        if (self.quantity_grams is None) == (self.servings is None):
+            raise ValueError("Provide exactly one of quantity_grams or servings")
+        return self
 
 
 class RecipeMealItemCreate(BaseModel):
