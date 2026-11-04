@@ -166,6 +166,33 @@ async def create_recipe(api, food_id, name="Breakfast bowl", servings=2):
     return response.json()
 
 
+async def test_food_and_recipe_catalogues_return_all_matching_entries(nutrition_api):
+    api = nutrition_api
+    foods = [await create_food(api, f"Catalogue food {index:02}") for index in range(21)]
+
+    food_search = await api.client.get(
+        "/api/v1/foods", auth=api.alice, params={"name": "Catalogue food"}
+    )
+    assert food_search.status_code == 200
+    assert {item["id"] for item in food_search.json()} == {item["id"] for item in foods}
+
+    food_list = await api.client.get("/api/v1/foods", auth=api.alice)
+    assert {item["id"] for item in foods}.issubset({item["id"] for item in food_list.json()})
+
+    recipes = [
+        await create_recipe(api, foods[0]["id"], name=f"Catalogue recipe {index:02}")
+        for index in range(21)
+    ]
+    recipe_search = await api.client.get(
+        "/api/v1/recipes", auth=api.alice, params={"name": "Catalogue recipe"}
+    )
+    assert recipe_search.status_code == 200
+    assert {item["id"] for item in recipe_search.json()} == {item["id"] for item in recipes}
+
+    recipe_list = await api.client.get("/api/v1/recipes", auth=api.alice)
+    assert {item["id"] for item in recipes}.issubset({item["id"] for item in recipe_list.json()})
+
+
 async def test_food_and_recipe_edits_version_only_used_sources(nutrition_api):
     api = nutrition_api
     original_food = await create_food(

@@ -1,4 +1,4 @@
-from sqlalchemy import delete, func, insert, or_, select, update
+from sqlalchemy import delete, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
@@ -132,13 +132,8 @@ async def search_foods(db: AsyncSession, user_id: int, name: str | None = None):
         or_(food.c.user_id == user_id, food.c.user_id.is_(None)), food.c.is_active.is_(True)
     )
     if name and name.strip():
-        result = await db.execute(
-            stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
-            .order_by(food.c.name, food.c.id)
-            .limit(20)
-        )
-    else:
-        result = await db.execute(stmt.order_by(func.random()).limit(3))
+        stmt = stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
+    result = await db.execute(stmt.order_by(food.c.name, food.c.id))
     return result.mappings().all()
 
 
@@ -198,12 +193,8 @@ async def get_recipes(
         conditions.append(recipe.c.id == recipe_id)
     if name and name.strip():
         conditions.append(recipe.c.name.icontains(name.strip(), autoescape=True))
-    ordering = (recipe.c.name, recipe.c.id) if name and name.strip() else (func.random(),)
     selected_recipe_ids = (
-        select(recipe.c.id)
-        .where(*conditions)
-        .order_by(*ordering)
-        .limit(20 if name and name.strip() else 3)
+        select(recipe.c.id).where(*conditions).order_by(recipe.c.name, recipe.c.id)
     )
     rows = (
         (
