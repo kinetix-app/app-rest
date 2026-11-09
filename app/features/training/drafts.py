@@ -76,7 +76,7 @@ async def save_draft(
                 result = present(row)
                 await session.commit()
                 return result
-            original = DraftSnapshot.model_validate(row["snapshot"])
+            original = present(row)
             if original.started_at != data.started_at or original.routine_id != data.routine_id:
                 raise IdempotencyConflict
         else:
@@ -148,7 +148,10 @@ async def finish_draft(
                 raise IdempotencyConflict
             await session.commit()
             return result
-        snapshot = DraftSnapshot.model_validate(row["snapshot"])
+        try:
+            snapshot = DraftSnapshot.model_validate(row["snapshot"])
+        except ValueError:
+            raise InvalidSelection from None
         if data.ended_at < snapshot.started_at or (
             data.update_routine and (snapshot.routine_id is None or not snapshot.exercises)
         ):
@@ -186,7 +189,16 @@ async def finish_draft(
             exercises=[
                 {
                     "exercise_id": item.exercise_id,
-                    "sets": [{"reps": value.reps, "weight": value.weight} for value in item.sets],
+                    "sets": [
+                        {
+                            "reps": value.reps,
+                            "weight": value.weight,
+                            "weight_kg": value.weight_kg,
+                            "duration_seconds": value.duration_seconds,
+                            "distance_km": value.distance_km,
+                        }
+                        for value in item.sets
+                    ],
                 }
                 for item in snapshot.exercises
             ],

@@ -41,7 +41,7 @@ def selectable_exercise(user_id: int) -> ColumnElement[bool]:
     # Nullable ownership is not publication. Only the explicit seed's global
     # catalogue and the current account's gym exercises are selectable.
     return sa.and_(
-        exercise.c.activity_type == "gym",
+        exercise.c.activity_type.in_(("gym", "cardio")),
         sa.or_(
             exercise.c.user_id == user_id,
             sa.and_(
@@ -429,6 +429,8 @@ async def replace_sets(session: AsyncSession, slot_id: int, sets: Sequence[Plann
                     "set_number": number,
                     "reps": item.reps,
                     "weight_kg": item.canonical_kg(),
+                    "duration_seconds": item.duration_seconds,
+                    "distance_km": item.distance_km,
                 }
                 for number, item in enumerate(sets, 1)
             ],
@@ -494,6 +496,8 @@ async def replace_routine_from_session(
                         "set_number": number,
                         "reps": value.reps,
                         "weight_kg": value.weight_kg,
+                        "duration_seconds": value.duration_seconds,
+                        "distance_km": value.distance_km,
                     }
                     for number, value in enumerate(item.sets, 1)
                 ],

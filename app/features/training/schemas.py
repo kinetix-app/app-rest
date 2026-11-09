@@ -18,7 +18,7 @@ class InputModel(BaseModel):
 
 
 class WeightInput(InputModel):
-    value: Decimal = Field(ge=0, max_digits=16, decimal_places=8, allow_inf_nan=False)
+    value: Decimal = Field(gt=0, max_digits=16, decimal_places=8, allow_inf_nan=False)
     unit: WeightUnit
 
     @field_validator("value", mode="before")
@@ -40,25 +40,42 @@ class WeightResponse(BaseModel):
 
 
 class PlannedSet(InputModel):
-    reps: int = Field(strict=True, ge=1, le=2**31 - 1)
+    reps: int | None = Field(default=None, strict=True, ge=1, le=2**31 - 1)
     weight_kg: Decimal | None = Field(
-        default=None, ge=0, max_digits=8, decimal_places=2, allow_inf_nan=False
+        default=None, gt=0, max_digits=8, decimal_places=2, allow_inf_nan=False
     )
     weight: WeightInput | None = None
+    duration_seconds: int | None = Field(default=None, strict=True, ge=0, le=2**31 - 1)
+    distance_km: Decimal | None = Field(
+        default=None, ge=0, max_digits=8, decimal_places=2, allow_inf_nan=False
+    )
 
     @model_validator(mode="after")
     def one_mass(self) -> Self:
-        if (self.weight is None) == (self.weight_kg is None):
-            raise ValueError("Supply exactly one of weight or weight_kg")
-        if "weight" in self.model_fields_set and "weight_kg" in self.model_fields_set:
-            raise ValueError("Supply exactly one of weight or weight_kg")
+        if self.weight is not None and self.weight_kg is not None:
+            raise ValueError("Supply only one of weight or weight_kg")
         return self
 
-    def canonical_kg(self) -> Decimal:
+    def canonical_kg(self) -> Decimal | None:
         if self.weight is not None:
             return canonical_weight(self.weight.value, self.weight.unit)
-        assert self.weight_kg is not None
-        return canonical_weight(self.weight_kg, "kg")
+        if self.weight_kg is not None:
+            return canonical_weight(self.weight_kg, "kg")
+        return None
+
+    def validate_activity(self, activity_type: str, *, incomplete: bool = False) -> None:
+        gym_values = self.reps is not None or self.weight is not None or self.weight_kg is not None
+        cardio_values = self.duration_seconds is not None or self.distance_km is not None
+        if activity_type == "cardio":
+            valid = not gym_values and (
+                incomplete or (self.duration_seconds is not None and self.distance_km is not None)
+            )
+        else:
+            valid = not cardio_values and (
+                incomplete or (self.reps is not None and self.canonical_kg() is not None)
+            )
+        if not valid:
+            raise ValueError("Set measurements do not match the exercise activity type")
 
 
 class ExerciseSelection(InputModel):
@@ -186,9 +203,8 @@ class ExercisePage(BaseModel):
     offset: int
 
 
-class CompletedSet(InputModel):
-    reps: int = Field(strict=True, ge=1, le=2**31 - 1)
-    weight: WeightInput
+class CompletedSet(PlannedSet):
+    pass
 
 
 class CompletedExercise(InputModel):
@@ -235,32 +251,39 @@ class SessionPage(BaseModel):
     offset: int
 
 
-class DraftSet(InputModel):
+class DraftSet(PlannedSet):
+    supplied_fields: SkipJsonSchema[set[str]] = Field(default_factory=set, exclude=True)
+
     @model_validator(mode="before")
     @classmethod
-    def ignore_invalid_unconfirmed_values(cls, value):
-        if isinstance(value, dict) and value.get("completed") is False:
+    def sanitize_unconfirmed(cls, value):
+        if isinstance(value, dict):
             value = dict(value)
-            reps = value.get("reps")
-            if type(reps) is not int or not 1 <= reps <= 2**31 - 1:
-                value["reps"] = None
-            try:
-                if value.get("weight") is not None:
-                    value["weight"] = WeightInput.model_validate(value["weight"])
-            except ValueError:
-                value["weight"] = None
+            if "supplied_fields" in value:
+                raise ValueError("Unexpected supplied_fields")
+            keys = ("reps", "weight", "weight_kg", "duration_seconds", "distance_km")
+            value["supplied_fields"] = {key for key in keys if value.get(key) is not None}
+            if value.get("completed") is False:
+                for key in keys:
+                    if value.get(key) is not None:
+                        try:
+                            PlannedSet.model_validate({key: value[key]})
+                        except ValueError:
+                            value[key] = None
         return value
 
-    client_id: UUID
-    reps: int | None = Field(default=None, strict=True, ge=1, le=2**31 - 1)
-    weight: WeightInput | None = None
-    completed: bool = Field(strict=True)
+    def validate_activity(self, activity_type: str, *, incomplete: bool = False) -> None:
+        incompatible = (
+            {"reps", "weight", "weight_kg"}
+            if activity_type == "cardio"
+            else {"duration_seconds", "distance_km"}
+        )
+        if self.supplied_fields & incompatible:
+            raise ValueError("Set measurements do not match the exercise activity type")
+        super().validate_activity(activity_type, incomplete=incomplete)
 
-    @model_validator(mode="after")
-    def confirmed_values(self) -> Self:
-        if self.completed and (self.reps is None or self.weight is None):
-            raise ValueError("Confirmed sets require repetitions and weight")
-        return self
+    client_id: UUID
+    completed: bool = Field(strict=True)
 
 
 class DraftExercise(InputModel):
@@ -297,7 +320,32 @@ class DraftSnapshot(InputModel):
         return self
 
 
-class DraftResponse(DraftSnapshot):
+class LegacyDraftWeight(BaseModel):
+    value: Decimal
+    unit: WeightUnit
+
+
+class LegacyDraftSet(BaseModel):
+    client_id: UUID
+    reps: int | None = None
+    weight: LegacyDraftWeight | None = None
+    weight_kg: Decimal | None = None
+    duration_seconds: int | None = None
+    distance_km: Decimal | None = None
+    completed: bool
+
+
+class LegacyDraftExercise(BaseModel):
+    client_id: UUID
+    exercise_id: EntityId
+    sets: list[LegacyDraftSet]
+
+
+class DraftResponse(BaseModel):
+    routine_id: EntityId | None = None
+    name: str
+    started_at: AwareDatetime
+    exercises: list[LegacyDraftExercise]
     client_session_id: UUID
     state: Literal["draft"] = "draft"
 

@@ -29,7 +29,7 @@ from app.features.training.schemas import (
     WeightResponse,
 )
 from app.features.training.service import selectable_exercise
-from app.features.training.units import WeightUnit, canonical_weight, display_weight
+from app.features.training.units import WeightUnit, display_weight
 
 
 def present_set(row, unit: WeightUnit) -> SetResponse:
@@ -51,7 +51,17 @@ def normalized_payload(data: SessionCreate, *, legacy: bool = False) -> dict:
                 "sets": [
                     {
                         "reps": value.reps,
-                        "weight_kg": str(canonical_weight(value.weight.value, value.weight.unit)),
+                        "weight_kg": str(value.canonical_kg())
+                        if value.canonical_kg() is not None
+                        else None,
+                        **(
+                            {
+                                "duration_seconds": value.duration_seconds,
+                                "distance_km": str(value.distance_km),
+                            }
+                            if value.duration_seconds is not None
+                            else {}
+                        ),
                     }
                     for value in item.sets
                 ],
@@ -165,15 +175,26 @@ async def validate_sources(
         if owner != user_id:
             raise InvalidSelection
     requested = {item.exercise_id for item in data.exercises}
-    available = set(
-        await session.scalars(
-            sa.select(exercise.c.id).where(
-                exercise.c.id.in_(requested), selectable_exercise(user_id)
+    available = dict(
+        (
+            await session.execute(
+                sa.select(exercise.c.id, exercise.c.activity_type).where(
+                    exercise.c.id.in_(requested), selectable_exercise(user_id)
+                )
             )
-        )
+        ).all()
     )
-    if requested != available:
+    if requested != set(available):
         raise InvalidSelection
+    for item in data.exercises:
+        for value in item.sets:
+            try:
+                value.validate_activity(
+                    available[item.exercise_id],
+                    incomplete=hasattr(value, "completed") and not value.completed,
+                )
+            except ValueError:
+                raise InvalidSelection from None
 
 
 def _accepted_session_fingerprints(data: SessionCreate) -> set[str]:
@@ -265,7 +286,9 @@ async def _insert_session_exercises(
                         "session_exercise_id": entry_id,
                         "set_number": number,
                         "reps": value.reps,
-                        "weight_kg": canonical_weight(value.weight.value, value.weight.unit),
+                        "weight_kg": value.canonical_kg(),
+                        "duration_seconds": value.duration_seconds,
+                        "distance_km": value.distance_km,
                         "completed": True,
                     }
                     for number, value in enumerate(item.sets, 1)

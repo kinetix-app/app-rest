@@ -12,9 +12,12 @@ MAX_WEIGHT_KG = Decimal("999999.99")
 
 def canonical_weight(value: Decimal, unit: WeightUnit) -> Decimal:
     weight = value * KG_PER_LB if unit == "lb" else value
-    if not weight.is_finite() or weight < 0 or weight > MAX_WEIGHT_KG:
-        raise ValueError("Weight must be between 0 and 999999.99 kg")
-    return weight.quantize(STORAGE_QUANTUM, rounding=ROUND_HALF_UP)
+    if not weight.is_finite() or weight <= 0 or weight > MAX_WEIGHT_KG:
+        raise ValueError("Weight must be greater than 0 and at most 999999.99 kg")
+    result = weight.quantize(STORAGE_QUANTUM, rounding=ROUND_HALF_UP)
+    if result <= 0:
+        raise ValueError("Weight rounds to zero")
+    return result
 
 
 def display_weight(value: Decimal, unit: WeightUnit) -> Decimal:
