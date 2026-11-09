@@ -196,6 +196,15 @@ async def test_real_blob_upload_readback_rerun_and_database_persistence(
             assert await seed_exercises(dataset, storage, sessions) == {"exercises": 1, "media": 3}
         assert len([blob async for blob in storage.container.list_blobs()]) == 3
         (record,) = await rows(sessions)
+        dataset[0].data.exerciseType = " cardio "
+        dataset[0].data.bodyParts = []
+        await seed_exercises(dataset, storage, sessions)
+        (reclassified,) = await rows(sessions)
+        assert reclassified["id"] == record["id"]
+        assert reclassified["activity_type"] == "cardio"
+        assert reclassified["video_url"] == record["video_url"]
+        assert reclassified["exercise_types"] == [" cardio "]
+        assert reclassified["body_parts"] == []
         async with httpx.AsyncClient() as client:
             for asset in dataset[0].assets:
                 response = await client.get(storage.media_url(asset.blob_name))

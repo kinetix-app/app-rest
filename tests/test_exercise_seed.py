@@ -174,3 +174,16 @@ async def test_explicit_account_name_supports_compose_hostname(settings):
         assert storage.container.url == "http://azurite:10000/kinetixlocal/exercises"
     finally:
         await storage.close()
+
+
+def test_provider_cardio_classification_uses_exercise_type(exercise_export):
+    metadata_path = exercise_export / "bench-press" / "data.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["exerciseType"] = "  cArDiO  "
+    metadata["bodyParts"] = []
+    metadata_path.write_text(json.dumps(metadata))
+    (item,) = load_dataset(exercise_export)
+    values = item.data.database_values()
+    assert values["activity_type"] == "cardio"
+    assert values["exercise_types"] == ["  cArDiO  "]
+    assert values["body_parts"] == []

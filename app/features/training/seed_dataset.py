@@ -35,9 +35,9 @@ class ExerciseInput(BaseModel):
         return {
             "source": SOURCE,
             "external_id": self.exerciseId,
-            # The catalogue is gym movements, including equipment-based cardio;
-            # exerciseType remains a separate provider classification.
-            "activity_type": "gym",
+            "activity_type": "cardio"
+            if self.exerciseType.strip().casefold() == "cardio"
+            else "gym",
             "name": self.name,
             "overview": self.overview,
             "body_parts": self.bodyParts,

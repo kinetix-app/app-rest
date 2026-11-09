@@ -149,6 +149,21 @@ class SetResponse(BaseModel):
     distance_km: Decimal | None
 
 
+class ExerciseHistoryItem(BaseModel):
+    session_id: int
+    started_at: AwareDatetime
+    ended_at: AwareDatetime
+    name: str
+    activity_type: str
+    sets: list[SetResponse]
+
+
+class ExerciseHistoryPage(BaseModel):
+    items: list[ExerciseHistoryItem]
+    limit: int
+    offset: int
+
+
 class RoutineExerciseResponse(BaseModel):
     id: int
     exercise_order: int

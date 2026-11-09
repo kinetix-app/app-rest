@@ -62,11 +62,14 @@ async def list_exercises(
     muscle_group: str | None,
     name: str | None = None,
     body_part: Sequence[str] | str | None = None,
+    activity_type: str | None = None,
 ) -> ExercisePage:
     # Project only list-card data; instructions/media variants remain in detail.
     query = sa.select(*(exercise.c[key] for key in ExerciseSummary.model_fields)).where(
         selectable_exercise(user_id)
     )
+    if activity_type is not None:
+        query = query.where(exercise.c.activity_type == activity_type)
     if name and name.strip():
         query = query.where(exercise.c.name.icontains(name.strip(), autoescape=True))
     parts = [body_part] if isinstance(body_part, str) else (body_part or [])
@@ -271,15 +274,22 @@ async def validate_exercises(
     session: AsyncSession, user_id: int, selections: Sequence[ExerciseSelection]
 ) -> None:
     requested = {item.exercise_id for item in selections}
-    available = set(
-        await session.scalars(
-            sa.select(exercise.c.id).where(
+    rows = (
+        await session.execute(
+            sa.select(exercise.c.id, exercise.c.activity_type).where(
                 exercise.c.id.in_(requested), selectable_exercise(user_id)
             )
         )
-    )
-    if requested != available:
+    ).all()
+    available = dict(rows)
+    if requested != set(available):
         raise InvalidSelection
+    for item in selections:
+        for value in item.sets or []:
+            try:
+                value.validate_activity(available[item.exercise_id])
+            except ValueError:
+                raise InvalidSelection from None
 
 
 async def create_routine(
