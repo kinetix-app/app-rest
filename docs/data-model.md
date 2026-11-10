@@ -131,8 +131,10 @@ erDiagram
         bigint id PK "generated; required"
         bigint user_id FK "nullable"
         varchar name "VARCHAR(150); required"
-        text description "nullable"
+        text description "nullable; routine notes"
         timestamp created_at "nullable"
+        text picture_blob_name "nullable; private cover reference"
+        timestamptz deleted_at "nullable; hidden from active routine APIs"
     }
 
     routine_exercise {

@@ -184,7 +184,9 @@ CREATE TABLE routine (
     user_id BIGINT REFERENCES users(id),
     name VARCHAR(150) NOT NULL,
     description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    picture_blob_name TEXT, -- Private routine cover reference; never serialized to clients
+    deleted_at TIMESTAMPTZ -- Hidden from active APIs; completed history keeps its origin
 );
 
 -- Routine exercises mirror session_exercise: exercise reference, order, notes and child sets.

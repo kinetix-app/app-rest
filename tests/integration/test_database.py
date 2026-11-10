@@ -58,3 +58,93 @@ def test_alembic_bootstrap_and_metadata_consistency(integration_url, monkeypatch
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     command.upgrade(config, "head")
     command.check(config)
+
+
+@pytest.mark.anyio
+async def test_routine_cover_upgrade_preserves_existing_templates(integration_url):
+    schema = "routine_upgrade_" + uuid4().hex
+    engine = create_async_engine(integration_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+
+            def migrate(conn, revision):
+                config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+                config.attributes["connection"] = conn
+                command.upgrade(config, revision)
+
+            await connection.run_sync(migrate, "20261102_01")
+            await connection.execute(
+                text(
+                    "INSERT INTO routine (name, description) "
+                    "VALUES ('Legacy routine', 'Preserved note')"
+                )
+            )
+            await connection.run_sync(migrate, "head")
+            result = (
+                await connection.execute(
+                    text("SELECT name, description, picture_blob_name FROM routine")
+                )
+            ).one()
+            assert tuple(result) == ("Legacy routine", "Preserved note", None)
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_routine_soft_delete_upgrade_preserves_covers_and_completed_history(integration_url):
+    schema = "routine_retire_" + uuid4().hex
+    engine = create_async_engine(integration_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+
+            def migrate(conn, revision):
+                config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+                config.attributes["connection"] = conn
+                command.upgrade(config, revision)
+
+            await connection.run_sync(migrate, "20261103_01")
+            user_id = await connection.scalar(text("INSERT INTO users DEFAULT VALUES RETURNING id"))
+            routine_id = await connection.scalar(
+                text(
+                    "INSERT INTO routine (user_id, name, description, picture_blob_name) "
+                    "VALUES (:user_id, 'Legacy routine', 'Preserved note', "
+                    "'private-cover.jpg') RETURNING id"
+                ),
+                {"user_id": user_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO training_session "
+                    "(user_id, routine_id, activity_type, started_at, ended_at) "
+                    "VALUES (:user_id, :routine_id, 'gym', "
+                    "'2026-11-01T10:00:00Z', '2026-11-01T11:00:00Z')"
+                ),
+                {"user_id": user_id, "routine_id": routine_id},
+            )
+            await connection.run_sync(migrate, "head")
+            row = (
+                await connection.execute(
+                    text("SELECT id, name, description, picture_blob_name, deleted_at FROM routine")
+                )
+            ).one()
+            assert tuple(row) == (
+                routine_id,
+                "Legacy routine",
+                "Preserved note",
+                "private-cover.jpg",
+                None,
+            )
+            assert (
+                await connection.scalar(text("SELECT routine_id FROM training_session"))
+                == routine_id
+            )
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()

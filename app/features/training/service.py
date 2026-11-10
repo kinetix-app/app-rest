@@ -13,6 +13,7 @@ from app.features.training.models import (
     routine,
     routine_exercise,
     routine_exercise_set,
+    training_session,
 )
 from app.features.training.schemas import (
     BodyPartList,
@@ -40,7 +41,7 @@ def selectable_exercise(user_id: int) -> ColumnElement[bool]:
     # Nullable ownership is not publication. Only the explicit seed's global
     # catalogue and the current account's gym exercises are selectable.
     return sa.and_(
-        exercise.c.activity_type == "gym",
+        exercise.c.activity_type.in_(("gym", "cardio")),
         sa.or_(
             exercise.c.user_id == user_id,
             sa.and_(
@@ -134,18 +135,56 @@ async def get_exercise(session: AsyncSession, user_id: int, exercise_id: int) ->
     return ExerciseResponse.model_validate(row)
 
 
+def _routine_summary_query(user_id: int):
+    count = (
+        sa.select(sa.func.count())
+        .where(routine_exercise.c.routine_id == routine.c.id)
+        .correlate(routine)
+        .scalar_subquery()
+    )
+    last = (
+        sa.select(sa.func.max(training_session.c.ended_at))
+        .where(
+            training_session.c.routine_id == routine.c.id,
+            training_session.c.user_id == user_id,
+            training_session.c.ended_at.is_not(None),
+        )
+        .correlate(routine)
+        .scalar_subquery()
+    )
+    return sa.select(
+        routine.c.id,
+        routine.c.name,
+        routine.c.description.label("notes"),
+        routine.c.picture_blob_name,
+        count.label("exercise_count"),
+        last.label("last_performed_at"),
+    ).where(routine.c.user_id == user_id, routine.c.deleted_at.is_(None))
+
+
+def _present_summary(row) -> RoutineSummary:
+    name = row["picture_blob_name"]
+    revision = name.rsplit("/", 1)[-1].removesuffix(".jpg") if name else None
+    return RoutineSummary(
+        id=row["id"],
+        name=row["name"],
+        notes=row["notes"],
+        exercise_count=row["exercise_count"],
+        last_performed_at=row["last_performed_at"],
+        image_url=f"/api/v1/routines/{row['id']}/picture?v={revision}" if revision else None,
+    )
+
+
 async def list_routines(
     session: AsyncSession, user_id: int, limit: int, offset: int, name: str | None = None
 ) -> RoutinePage:
-    query = sa.select(routine.c.id, routine.c.name).where(routine.c.user_id == user_id)
+    query = _routine_summary_query(user_id)
     if name and name.strip():
         query = query.where(routine.c.name.icontains(name.strip(), autoescape=True))
     rows = (
         await session.execute(query.order_by(routine.c.id).limit(limit).offset(offset))
     ).mappings()
-    return RoutinePage(
-        items=[RoutineSummary.model_validate(row) for row in rows], limit=limit, offset=offset
-    )
+    return RoutinePage(items=[_present_summary(row) for row in rows], limit=limit, offset=offset)
 
 
 async def get_routine(
@@ -156,7 +195,11 @@ async def get_routine(
         (
             await session.execute(
                 sa.select(routine)
-                .where(routine.c.id == routine_id, routine.c.user_id == user_id)
+                .where(
+                    routine.c.id == routine_id,
+                    routine.c.user_id == user_id,
+                    routine.c.deleted_at.is_(None),
+                )
                 .with_for_update(read=True)
             )
         )
@@ -202,9 +245,13 @@ async def get_routine(
     previous = await last_configurations(
         session, user_id, [slot["exercise_id"] for slot in slots], weight_unit
     )
+    summary = (
+        (await session.execute(_routine_summary_query(user_id).where(routine.c.id == routine_id)))
+        .mappings()
+        .one()
+    )
     return RoutineResponse(
-        id=owner_row["id"],
-        name=owner_row["name"],
+        **_present_summary(summary).model_dump(),
         exercises=[
             RoutineExerciseResponse(
                 id=slot["id"],
@@ -236,13 +283,25 @@ async def validate_exercises(
 
 
 async def create_routine(
-    session: AsyncSession, user_id: int, data: RoutineCreate, weight_unit: WeightUnit = "kg"
+    session: AsyncSession,
+    user_id: int,
+    data: RoutineCreate,
+    weight_unit: WeightUnit = "kg",
+    *,
+    reserved_id: int | None = None,
+    picture_blob_name: str | None = None,
 ) -> RoutineResponse:
     try:
         await validate_exercises(session, user_id, data.exercises)
-        routine_id = await session.scalar(
-            routine.insert().values(user_id=user_id, name=data.name).returning(routine.c.id)
-        )
+        values = {
+            "user_id": user_id,
+            "name": data.name,
+            "description": data.notes,
+            "picture_blob_name": picture_blob_name,
+        }
+        if reserved_id is not None:
+            values["id"] = reserved_id
+        routine_id = await session.scalar(routine.insert().values(**values).returning(routine.c.id))
         for position, item in enumerate(data.exercises, 1):
             slot_id = await session.scalar(
                 routine_exercise.insert()
@@ -330,7 +389,11 @@ async def update_routine(
     try:
         found = await session.scalar(
             sa.select(routine.c.id)
-            .where(routine.c.id == routine_id, routine.c.user_id == user_id)
+            .where(
+                routine.c.id == routine_id,
+                routine.c.user_id == user_id,
+                routine.c.deleted_at.is_(None),
+            )
             .with_for_update()
         )
         if found is None:
@@ -340,6 +403,10 @@ async def update_routine(
         if data.name is not None:
             await session.execute(
                 sa.update(routine).where(routine.c.id == routine_id).values(name=data.name)
+            )
+        if "notes" in data.model_fields_set:
+            await session.execute(
+                sa.update(routine).where(routine.c.id == routine_id).values(description=data.notes)
             )
         response = await get_routine(session, user_id, routine_id, weight_unit)
         await session.commit()
@@ -362,6 +429,8 @@ async def replace_sets(session: AsyncSession, slot_id: int, sets: Sequence[Plann
                     "set_number": number,
                     "reps": item.reps,
                     "weight_kg": item.canonical_kg(),
+                    "duration_seconds": item.duration_seconds,
+                    "distance_km": item.distance_km,
                 }
                 for number, item in enumerate(sets, 1)
             ],
@@ -390,7 +459,11 @@ async def replace_routine_from_session(
         raise InvalidSelection
     found = await session.scalar(
         sa.select(routine.c.id)
-        .where(routine.c.id == completed.routine_id, routine.c.user_id == user_id)
+        .where(
+            routine.c.id == completed.routine_id,
+            routine.c.user_id == user_id,
+            routine.c.deleted_at.is_(None),
+        )
         .with_for_update()
     )
     if found is None:
@@ -423,6 +496,8 @@ async def replace_routine_from_session(
                         "set_number": number,
                         "reps": value.reps,
                         "weight_kg": value.weight_kg,
+                        "duration_seconds": value.duration_seconds,
+                        "distance_km": value.distance_km,
                     }
                     for number, value in enumerate(item.sets, 1)
                 ],

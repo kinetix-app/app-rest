@@ -6,6 +6,9 @@ import sqlalchemy as sa
 
 from app.db.base import Base
 
+USER_ID_REFERENCE = "users.id"
+POST_ID_REFERENCE = "post.id"
+
 
 class PostVisibility(StrEnum):
     PUBLIC = "PUBLIC"
@@ -28,7 +31,7 @@ post = sa.Table(
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
     sa.Column("text", sa.Text(), nullable=False),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_REFERENCE), nullable=False),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
@@ -50,7 +53,7 @@ file = sa.Table(
     "file",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("post_id", sa.BigInteger(), sa.ForeignKey("post.id"), nullable=False),
+    sa.Column("post_id", sa.BigInteger(), sa.ForeignKey(POST_ID_REFERENCE), nullable=False),
     sa.Column("order", sa.Integer(), nullable=False),
     sa.Column(
         "type",
@@ -69,8 +72,8 @@ file = sa.Table(
 post_like = sa.Table(
     "post_like",
     Base.metadata,
-    sa.Column("post_id", sa.BigInteger(), sa.ForeignKey("post.id"), primary_key=True),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), primary_key=True),
+    sa.Column("post_id", sa.BigInteger(), sa.ForeignKey(POST_ID_REFERENCE), primary_key=True),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_REFERENCE), primary_key=True),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
@@ -80,8 +83,8 @@ post_comment = sa.Table(
     "post_comment",
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
-    sa.Column("post_id", sa.BigInteger(), sa.ForeignKey("post.id"), nullable=False),
-    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("post_id", sa.BigInteger(), sa.ForeignKey(POST_ID_REFERENCE), nullable=False),
+    sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_REFERENCE), nullable=False),
     sa.Column("comment", sa.Text(), nullable=False),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
