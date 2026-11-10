@@ -15,13 +15,23 @@ from app.features.accounts.errors import (
     PictureTooLarge,
     UnsupportedPicture,
 )
-from app.features.training import creation, deletion, drafts, history, pictures, service, sessions
+from app.features.training import (
+    creation,
+    deletion,
+    drafts,
+    evolution,
+    history,
+    pictures,
+    service,
+    sessions,
+)
 from app.features.training.errors import (
     IdempotencyConflict,
     InvalidSelection,
     RoutineInUse,
     TrainingNotFound,
 )
+from app.features.training.evolution_schemas import DistanceUnit, ExerciseEvolution
 from app.features.training.schemas import (
     BodyPartList,
     DraftFinish,
@@ -106,6 +116,26 @@ async def get_exercise_history(
         raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None
     return await history.exercise_history(
         session, user.id, exercise_id, item.activity_type, limit, offset, weight_unit
+    )
+
+
+@router.get(
+    "/exercises/{exercise_id}/evolution",
+    responses={404: {"description": EXERCISE_NOT_FOUND_DETAIL}},
+)
+async def get_exercise_evolution(
+    exercise_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    weight_unit: WeightUnit = "kg",
+    distance_unit: DistanceUnit = "km",
+) -> ExerciseEvolution:
+    try:
+        item = await service.get_exercise(session, user.id, exercise_id)
+    except TrainingNotFound:
+        raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None
+    return await evolution.exercise_evolution(
+        session, user.id, exercise_id, item.activity_type, weight_unit, distance_unit
     )
 
 
