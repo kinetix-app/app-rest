@@ -1865,8 +1865,9 @@ async def test_delete_serializes_with_draft_save_and_finish(training_api, monkey
     try:
         await asyncio.wait_for(validated.wait(), 5)
         removal = asyncio.create_task(api.client.delete(path, auth=api.alice))
+        shielded_removal = asyncio.shield(removal)
         with pytest.raises(TimeoutError):
-            await asyncio.wait_for(asyncio.shield(removal), 0.1)
+            await asyncio.wait_for(shielded_removal, 0.1)
         release.set()
         changed = await asyncio.wait_for(pending, 5)
         assert changed.status_code == 200
@@ -1939,8 +1940,9 @@ async def test_delete_waits_for_parent_source_validation_lock(training_api):
             api.client.delete(f"/api/v1/routines/{saved['id']}", auth=api.alice)
         )
         try:
+            shielded_pending = asyncio.shield(pending)
             with pytest.raises(TimeoutError):
-                await asyncio.wait_for(asyncio.shield(pending), 0.1)
+                await asyncio.wait_for(shielded_pending, 0.1)
         finally:
             await session.commit()
         assert (await asyncio.wait_for(pending, 5)).status_code == 204
