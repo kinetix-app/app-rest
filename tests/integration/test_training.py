@@ -532,6 +532,9 @@ async def test_planned_sets_roundtrip_patch_omission_and_history(training_api):
         [{"reps": 8, "weight_kg": "1.001"}],
         [{"reps": 8, "weight_kg": "NaN"}],
         [{"reps": 8, "weight_kg": "-1"}],
+        [{"reps": 8, "weight_kg": "0"}],
+        [{"reps": 8, "weight": {"value": "0", "unit": "kg"}}],
+        [{"reps": 8, "weight": {"value": "0", "unit": "lb"}}],
     ):
         rejected = await api.client.patch(
             path,
@@ -847,6 +850,17 @@ async def test_completed_invalid_nested_data_rollback_and_auth(training_api):
         {"user_id": api.bob_id},
         {"started_at": "2026-10-24T16:00:00"},
         {"ended_at": "2026-10-24T15:00:00Z"},
+        *[
+            {
+                "exercises": [
+                    {
+                        "exercise_id": api.catalogue[0],
+                        "sets": [{"reps": 8, "weight": {"value": "0", "unit": unit}}],
+                    }
+                ]
+            }
+            for unit in ("kg", "lb")
+        ],
         {"exercises": [{"exercise_id": api.private, "sets": payload["exercises"][0]["sets"]}]},
         {
             "exercises": [
