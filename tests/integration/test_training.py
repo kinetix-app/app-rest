@@ -1981,3 +1981,138 @@ async def test_delete_database_failure_retains_routine_and_cover_reference(
     assert (
         await api.client.get(f"/api/v1/routines/{saved['id']}", auth=api.alice)
     ).status_code == 200
+
+
+async def test_cardio_catalogue_and_persisted_set_type(training_api):
+    api = training_api
+    async with api.sessions.begin() as session:
+        await session.execute(
+            sa.update(exercise)
+            .where(exercise.c.id == api.catalogue[0])
+            .values(activity_type="cardio")
+        )
+    catalogue = await api.client.get("/api/v1/exercises?activity_type=cardio", auth=api.alice)
+    assert catalogue.status_code == 200
+    assert [item["id"] for item in catalogue.json()["items"]] == [api.catalogue[0]]
+    assert (
+        await api.client.get("/api/v1/exercises?activity_type=running", auth=api.alice)
+    ).status_code == 422
+    cardio = {"duration_seconds": 0, "distance_km": "0.00"}
+    gym = {"reps": 8, "weight": {"value": "10", "unit": "kg"}}
+    routine_data = {
+        "name": "Mixed",
+        "exercises": [
+            {"exercise_id": api.catalogue[0], "sets": [cardio]},
+            {"exercise_id": api.catalogue[1], "sets": [gym]},
+        ],
+    }
+    saved = await api.client.post("/api/v1/routines", auth=api.alice, json=routine_data)
+    assert saved.status_code == 201, saved.text
+    assert saved.json()["exercises"][0]["default_sets"][0]["distance_km"] == "0.00"
+    routine_data["exercises"][0]["sets"] = [gym]
+    assert (
+        await api.client.post("/api/v1/routines", auth=api.alice, json=routine_data)
+    ).status_code == 422
+    data = draft_snapshot(api)
+    data["routine_id"] = saved.json()["id"]
+    data["exercises"][0]["sets"][0].update(cardio, completed=True)
+    path = f"/api/v1/session-drafts/{uuid4()}"
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+    assert (await api.client.get("/api/v1/session-drafts", auth=api.bob)).json() is None
+    finish = {"ended_at": "2026-10-25T10:10:00Z", "update_routine": True}
+    result = await api.client.post(path + "/finish", auth=api.alice, json=finish)
+    assert result.status_code == 200, result.text
+    assert result.json()["exercises"][0]["sets"][0]["duration_seconds"] == 0
+    assert (
+        await api.client.post(path + "/finish", auth=api.alice, json=finish)
+    ).json() == result.json()
+    assert (
+        await api.client.get(f"/api/v1/sessions/{result.json()['id']}", auth=api.bob)
+    ).status_code == 404
+
+
+async def test_legacy_zero_weight_draft_can_be_read_and_replaced(training_api):
+    api = training_api
+    key = uuid4()
+    data = draft_snapshot(api, confirmed=True)
+    data["exercises"][0]["sets"][0]["weight"] = {"value": "0", "unit": "kg"}
+    async with api.sessions.begin() as session:
+        await session.execute(
+            session_draft.insert().values(
+                user_id=api.alice_id, client_session_id=key, snapshot=data
+            )
+        )
+    response = await api.client.get("/api/v1/session-drafts", auth=api.alice)
+    assert response.status_code == 200, response.text
+    assert response.json()["exercises"][0]["sets"][0]["weight"]["value"] == "0"
+    path = f"/api/v1/session-drafts/{key}"
+    assert (
+        await api.client.post(
+            path + "/finish", auth=api.alice, json={"ended_at": "2026-10-25T10:10:00Z"}
+        )
+    ).status_code == 422
+    data["exercises"][0]["sets"][0]["weight"]["value"] = "5"
+    assert (await api.client.put(path, auth=api.alice, json=data)).status_code == 200
+
+
+async def test_exercise_history_pagination_isolation_and_measurements(training_api):
+    api = training_api
+    path = f"/api/v1/exercises/{api.catalogue[0]}/history"
+    assert (await api.client.get(path)).status_code == 401
+    for exercise_id in (api.private, api.unowned, api.running, 999999):
+        assert (
+            await api.client.get(f"/api/v1/exercises/{exercise_id}/history", auth=api.alice)
+        ).status_code == 404
+    for query in ("limit=0", "limit=101", "offset=-1", "weight_unit=stone"):
+        assert (await api.client.get(f"{path}?{query}", auth=api.alice)).status_code == 422
+    assert (await api.client.get(path, auth=api.alice)).json() == {
+        "items": [],
+        "limit": 20,
+        "offset": 0,
+    }
+    template = await create(api, [api.catalogue[0], api.catalogue[1], api.catalogue[0]])
+    slots = template["exercises"]
+    payload = completed_payload(
+        api,
+        routine_id=template["id"],
+        exercises=[
+            {
+                "exercise_id": api.catalogue[0],
+                "routine_exercise_id": slots[0]["id"],
+                "sets": [{"reps": 8, "weight": {"value": "100", "unit": "lb"}}],
+            },
+            {
+                "exercise_id": api.catalogue[1],
+                "routine_exercise_id": slots[1]["id"],
+                "sets": [{"reps": 99, "weight": {"value": "1", "unit": "kg"}}],
+            },
+            {
+                "exercise_id": api.catalogue[0],
+                "routine_exercise_id": slots[2]["id"],
+                "sets": [{"reps": 10, "weight": {"value": "50", "unit": "lb"}}],
+            },
+        ],
+    )
+    first = await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    assert first.status_code == 201, first.text
+    second = await api.client.post(
+        "/api/v1/sessions", auth=api.alice, json={**payload, "client_session_id": str(uuid4())}
+    )
+    assert second.status_code == 201, second.text
+    other = await api.client.post("/api/v1/sessions", auth=api.bob, json=completed_payload(api))
+    assert other.status_code == 201, other.text
+    page = (await api.client.get(path + "?limit=1&weight_unit=lb", auth=api.alice)).json()
+    assert page["limit"] == 1
+    assert page["offset"] == 0
+    item = page["items"][0]
+    assert item["session_id"] == second.json()["id"]
+    assert item["name"] == "Upper body"
+    assert item["activity_type"] == "gym"
+    assert [s["reps"] for s in item["sets"]] == [8, 10]
+    assert [s["weight"]["value"] for s in item["sets"]] == ["100.00", "50.00"]
+    page2 = (await api.client.get(path + "?limit=1&offset=1", auth=api.alice)).json()
+    assert page2["items"][0]["session_id"] == first.json()["id"]
+    assert (await api.client.get(path + "?offset=2", auth=api.alice)).json()["items"] == []
+    assert [
+        i["session_id"] for i in (await api.client.get(path, auth=api.bob)).json()["items"]
+    ] == [other.json()["id"]]

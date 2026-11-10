@@ -1,6 +1,6 @@
 """Routine editing and exercise selection endpoints."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, UploadFile
@@ -15,7 +15,7 @@ from app.features.accounts.errors import (
     PictureTooLarge,
     UnsupportedPicture,
 )
-from app.features.training import creation, deletion, drafts, pictures, service, sessions
+from app.features.training import creation, deletion, drafts, history, pictures, service, sessions
 from app.features.training.errors import (
     IdempotencyConflict,
     InvalidSelection,
@@ -28,6 +28,7 @@ from app.features.training.schemas import (
     DraftResponse,
     DraftSnapshot,
     ExerciseConfiguration,
+    ExerciseHistoryPage,
     ExercisePage,
     ExerciseResponse,
     MuscleGroupList,
@@ -58,11 +59,12 @@ async def get_exercises(
     muscle_group: Annotated[str | None, Query(max_length=100)] = None,
     name: Annotated[str | None, Query(max_length=200)] = None,
     body_part: Annotated[list[BodyPart] | None, Query(max_length=30)] = None,
+    activity_type: Literal["gym", "cardio"] | None = None,
     limit: Limit = 50,
     offset: Offset = 0,
 ) -> ExercisePage:
     return await service.list_exercises(
-        session, user.id, limit, offset, muscle_group, name, body_part
+        session, user.id, limit, offset, muscle_group, name, body_part, activity_type
     )
 
 
@@ -84,6 +86,27 @@ async def get_exercise(
         return await service.get_exercise(session, user.id, exercise_id)
     except TrainingNotFound:
         raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None
+
+
+@router.get(
+    "/exercises/{exercise_id}/history",
+    responses={404: {"description": EXERCISE_NOT_FOUND_DETAIL}},
+)
+async def get_exercise_history(
+    exercise_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    limit: Limit = 20,
+    offset: Offset = 0,
+    weight_unit: WeightUnit = "kg",
+) -> ExerciseHistoryPage:
+    try:
+        item = await service.get_exercise(session, user.id, exercise_id)
+    except TrainingNotFound:
+        raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None
+    return await history.exercise_history(
+        session, user.id, exercise_id, item.activity_type, limit, offset, weight_unit
+    )
 
 
 @router.get("/routines")
