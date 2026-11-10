@@ -480,7 +480,7 @@ async def test_planned_sets_roundtrip_patch_omission_and_history(training_api):
                 "exercise_id": api.catalogue[0],
                 "sets": [
                     {"reps": 8, "weight_kg": "80.00"},
-                    {"reps": 10, "weight_kg": "0"},
+                    {"reps": 10, "weight_kg": "1"},
                 ],
             }
         ],
@@ -490,7 +490,7 @@ async def test_planned_sets_roundtrip_patch_omission_and_history(training_api):
     saved = response.json()
     slot = saved["exercises"][0]
     assert [row["set_number"] for row in slot["default_sets"]] == [1, 2]
-    assert [row["weight_kg"] for row in slot["default_sets"]] == ["80.000000", "0.000000"]
+    assert [row["weight_kg"] for row in slot["default_sets"]] == ["80.000000", "1.000000"]
     path = f"/api/v1/routines/{saved['id']}"
     assert (await api.client.get(path, auth=api.alice)).json() == saved
     session_id = await add_workout(
@@ -532,6 +532,9 @@ async def test_planned_sets_roundtrip_patch_omission_and_history(training_api):
         [{"reps": 8, "weight_kg": "1.001"}],
         [{"reps": 8, "weight_kg": "NaN"}],
         [{"reps": 8, "weight_kg": "-1"}],
+        [{"reps": 8, "weight_kg": "0"}],
+        [{"reps": 8, "weight": {"value": "0", "unit": "kg"}}],
+        [{"reps": 8, "weight": {"value": "0", "unit": "lb"}}],
     ):
         rejected = await api.client.patch(
             path,
@@ -798,7 +801,7 @@ async def test_completed_exercises_independent_of_template_slots(training_api):
             {
                 "exercise_id": api.catalogue[0],
                 "routine_exercise_id": slot["id"],
-                "sets": [{"reps": index + 1, "weight": {"value": "0", "unit": "kg"}}],
+                "sets": [{"reps": index + 1, "weight": {"value": "1", "unit": "kg"}}],
             }
             for index, slot in enumerate(slots)
         ],
@@ -847,6 +850,17 @@ async def test_completed_invalid_nested_data_rollback_and_auth(training_api):
         {"user_id": api.bob_id},
         {"started_at": "2026-10-24T16:00:00"},
         {"ended_at": "2026-10-24T15:00:00Z"},
+        *[
+            {
+                "exercises": [
+                    {
+                        "exercise_id": api.catalogue[0],
+                        "sets": [{"reps": 8, "weight": {"value": "0", "unit": unit}}],
+                    }
+                ]
+            }
+            for unit in ("kg", "lb")
+        ],
         {"exercises": [{"exercise_id": api.private, "sets": payload["exercises"][0]["sets"]}]},
         {
             "exercises": [
