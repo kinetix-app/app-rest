@@ -16,10 +16,12 @@ def test_exact_pounds_and_presentation_do_not_requantize_storage():
         assert display_weight(kg, "lb") == Decimal("100.00")
         assert display_weight(kg, "kg") == Decimal("45.36")
     assert canonical_weight(Decimal("0.0000005"), "kg") == Decimal("0.000001")
+    zero = Decimal("0")
+    rounds_to_zero = Decimal("0.0000001")
     with pytest.raises(ValueError):
-        canonical_weight(Decimal("0"), "lb")
+        canonical_weight(zero, "lb")
     with pytest.raises(ValueError):
-        canonical_weight(Decimal("0.0000001"), "kg")
+        canonical_weight(rounds_to_zero, "kg")
 
 
 @pytest.mark.parametrize("value", ["-1", "NaN", "Infinity", "1000000", True, 1, 1.5])

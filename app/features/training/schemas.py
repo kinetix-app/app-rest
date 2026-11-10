@@ -272,19 +272,22 @@ class DraftSet(PlannedSet):
     @model_validator(mode="before")
     @classmethod
     def sanitize_unconfirmed(cls, value):
-        if isinstance(value, dict):
-            value = dict(value)
-            if "supplied_fields" in value:
-                raise ValueError("Unexpected supplied_fields")
-            keys = ("reps", "weight", "weight_kg", "duration_seconds", "distance_km")
-            value["supplied_fields"] = {key for key in keys if value.get(key) is not None}
-            if value.get("completed") is False:
-                for key in keys:
-                    if value.get(key) is not None:
-                        try:
-                            PlannedSet.model_validate({key: value[key]})
-                        except ValueError:
-                            value[key] = None
+        if not isinstance(value, dict):
+            return value
+        value = dict(value)
+        if "supplied_fields" in value:
+            raise ValueError("Unexpected supplied_fields")
+        keys = ("reps", "weight", "weight_kg", "duration_seconds", "distance_km")
+        value["supplied_fields"] = {key for key in keys if value.get(key) is not None}
+        if value.get("completed") is not False:
+            return value
+        for key in keys:
+            if value.get(key) is None:
+                continue
+            try:
+                PlannedSet.model_validate({key: value[key]})
+            except ValueError:
+                value[key] = None
         return value
 
     def validate_activity(self, activity_type: str, *, incomplete: bool = False) -> None:

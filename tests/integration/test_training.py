@@ -1865,8 +1865,9 @@ async def test_delete_serializes_with_draft_save_and_finish(training_api, monkey
     try:
         await asyncio.wait_for(validated.wait(), 5)
         removal = asyncio.create_task(api.client.delete(path, auth=api.alice))
+        shielded_removal = asyncio.shield(removal)
         with pytest.raises(TimeoutError):
-            await asyncio.wait_for(asyncio.shield(removal), 0.1)
+            await asyncio.wait_for(shielded_removal, 0.1)
         release.set()
         changed = await asyncio.wait_for(pending, 5)
         assert changed.status_code == 200
@@ -1939,8 +1940,9 @@ async def test_delete_waits_for_parent_source_validation_lock(training_api):
             api.client.delete(f"/api/v1/routines/{saved['id']}", auth=api.alice)
         )
         try:
+            shielded_pending = asyncio.shield(pending)
             with pytest.raises(TimeoutError):
-                await asyncio.wait_for(asyncio.shield(pending), 0.1)
+                await asyncio.wait_for(shielded_pending, 0.1)
         finally:
             await session.commit()
         assert (await asyncio.wait_for(pending, 5)).status_code == 204
@@ -2100,10 +2102,12 @@ async def test_exercise_history_pagination_isolation_and_measurements(training_a
     other = await api.client.post("/api/v1/sessions", auth=api.bob, json=completed_payload(api))
     assert other.status_code == 201, other.text
     page = (await api.client.get(path + "?limit=1&weight_unit=lb", auth=api.alice)).json()
-    assert page["limit"] == 1 and page["offset"] == 0
+    assert page["limit"] == 1
+    assert page["offset"] == 0
     item = page["items"][0]
     assert item["session_id"] == second.json()["id"]
-    assert item["name"] == "Upper body" and item["activity_type"] == "gym"
+    assert item["name"] == "Upper body"
+    assert item["activity_type"] == "gym"
     assert [s["reps"] for s in item["sets"]] == [8, 10]
     assert [s["weight"]["value"] for s in item["sets"]] == ["100.00", "50.00"]
     page2 = (await api.client.get(path + "?limit=1&offset=1", auth=api.alice)).json()
