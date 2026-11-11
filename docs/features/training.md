@@ -126,3 +126,11 @@ marker and therefore makes previously deleted routines visible again; it never r
 completed training references.
 
 `GET /api/v1/exercises/{id}/history` requires authentication and returns only the caller's completed sessions containing a selectable exercise. Results use `limit` (1–100, default 20), `offset` and `weight_unit` (`kg` or `lb`), ordered by completion time and session ID descending. Each item contains the session timestamps, routine name (or `Workout`), exercise activity type and the matching performed sets in exercise/set order; repeated occurrences are grouped. Unselectable exercises return 404.
+
+### Exercise evolution
+
+Implemented for [app#20 — exercise history graphs](https://github.com/kinetix-app/app/issues/20).
+
+`GET /api/v1/exercises/{exercise_id}/evolution` requires authentication and the same catalogue visibility as exercise history. Optional `weight_unit=kg|lb` and `distance_unit=km|mi` default to kg and km. It returns every daily aggregate in ascending UTC completion-date order; it does not persist derived values. Only completed sets from completed workouts owned by the caller and matching the exact exercise identity contribute. An exercise without recorded sets returns an empty `days` list.
+
+Gym days report the highest positive recorded weight and repetitions independently, the sum of positive weight × positive repetitions, and the highest eligible Epley estimate (recorded weight for one rep, weight × (1 + reps / 30) for 2–10 reps). `volume_partial` indicates at least one completed set was excluded from volume because its weight or reps was missing or invalid. Estimates and volume use recorded loads, which may not represent total load for bodyweight or assisted exercises. Cardio days report the greatest recorded distance and duration independently. Incompatible or unavailable metrics are null. Values are compared and summed before conversion; weight-based values are rounded to one decimal and distance to two, using ROUND_HALF_UP. History remains the source for individual sets and provenance.

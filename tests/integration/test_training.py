@@ -2116,3 +2116,107 @@ async def test_exercise_history_pagination_isolation_and_measurements(training_a
     assert [
         i["session_id"] for i in (await api.client.get(path, auth=api.bob)).json()["items"]
     ] == [other.json()["id"]]
+
+
+async def test_exercise_evolution_permissions_persistence_and_immutability(training_api):
+    api = training_api
+    path = f"/api/v1/exercises/{api.catalogue[0]}/evolution"
+    assert (await api.client.get(path)).status_code == 401
+    for exercise_id in (api.private, api.unowned, api.running, 999999):
+        assert (
+            await api.client.get(f"/api/v1/exercises/{exercise_id}/evolution", auth=api.alice)
+        ).status_code == 404
+    for query in ("weight_unit=stone", "distance_unit=m"):
+        assert (await api.client.get(f"{path}?{query}", auth=api.alice)).status_code == 422
+    assert (await api.client.get(path, auth=api.alice)).json()["days"] == []
+    payload = completed_payload(
+        api,
+        exercises=[
+            {
+                "exercise_id": api.catalogue[0],
+                "sets": [
+                    {"reps": 5, "weight": {"value": "60", "unit": "kg"}},
+                    {"reps": 10, "weight": {"value": "40", "unit": "kg"}},
+                ],
+            },
+            {
+                "exercise_id": api.catalogue[0],
+                "sets": [{"reps": 11, "weight": {"value": "80", "unit": "kg"}}],
+            },
+        ],
+    )
+    saved = await api.client.post("/api/v1/sessions", auth=api.alice, json=payload)
+    assert saved.status_code == 201, saved.text
+    history_path = f"/api/v1/exercises/{api.catalogue[0]}/history"
+    before = (await api.client.get(history_path, auth=api.alice)).json()
+    result = (await api.client.get(path, auth=api.alice)).json()
+    assert len(result["days"]) == 1
+    day = result["days"][0]
+    assert (
+        day["estimated_1rm"],
+        day["weight"],
+        day["volume"],
+        day["reps"],
+        day["volume_partial"],
+    ) == ("70.0", "80.0", "1580.0", 11, False)
+    assert (await api.client.get(path, auth=api.bob)).json()["days"] == []
+    assert (await api.client.get(history_path, auth=api.alice)).json() == before
+    assert (await api.client.get(path, auth=api.alice)).json() == result
+
+
+async def test_evolution_combines_persisted_units_and_excludes_uncompleted_sets(training_api):
+    api = training_api
+    path = f"/api/v1/exercises/{api.catalogue[0]}/evolution"
+    for value, unit, reps in (("40", "kg", 10), ("100", "lb", 5)):
+        response = await api.client.post(
+            "/api/v1/sessions",
+            auth=api.alice,
+            json=completed_payload(
+                api,
+                exercises=[
+                    {
+                        "exercise_id": api.catalogue[0],
+                        "sets": [{"reps": reps, "weight": {"value": value, "unit": unit}}],
+                    }
+                ],
+            ),
+        )
+        assert response.status_code == 201, response.text
+    async with api.sessions.begin() as session:
+        entry_id = await session.scalar(
+            sa.select(session_exercise.c.id)
+            .join(training_session)
+            .where(training_session.c.user_id == api.alice_id)
+            .limit(1)
+        )
+        await session.execute(
+            exercise_set.insert().values(
+                session_exercise_id=entry_id,
+                set_number=99,
+                reps=9,
+                weight_kg=Decimal("999"),
+                completed=False,
+            )
+        )
+        before = (
+            (await session.execute(sa.select(exercise_set).order_by(exercise_set.c.id)))
+            .mappings()
+            .all()
+        )
+    day = (await api.client.get(path, auth=api.alice)).json()["days"][0]
+    assert (
+        day["estimated_1rm"],
+        day["weight"],
+        day["volume"],
+        day["reps"],
+        day["volume_partial"],
+    ) == ("53.3", "45.4", "626.8", 10, False)
+    pounds = (await api.client.get(path + "?weight_unit=lb", auth=api.alice)).json()["days"][0]
+    assert (pounds["weight"], pounds["volume"]) == ("100.0", "1381.8")
+    async with api.sessions() as session:
+        after = (
+            (await session.execute(sa.select(exercise_set).order_by(exercise_set.c.id)))
+            .mappings()
+            .all()
+        )
+    assert after == before
