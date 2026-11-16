@@ -1,0 +1,892 @@
+[
+  {
+    "catalog_key": "rolled-oats",
+    "name": "Rolled oats",
+    "brand": null,
+    "calories": "372.00",
+    "protein": "13.50",
+    "carbohydrates": "59.50",
+    "fats": "7.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "wholemeal-bread",
+    "name": "Wholemeal bread",
+    "brand": null,
+    "calories": "247.00",
+    "protein": "13.00",
+    "carbohydrates": "41.00",
+    "fats": "4.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "white-rice-dry",
+    "name": "White rice, dry",
+    "brand": null,
+    "calories": "356.00",
+    "protein": "7.00",
+    "carbohydrates": "79.00",
+    "fats": "0.70",
+    "barcode": null
+  },
+  {
+    "catalog_key": "wholewheat-pasta-dry",
+    "name": "Wholewheat pasta, dry",
+    "brand": null,
+    "calories": "348.00",
+    "protein": "13.00",
+    "carbohydrates": "65.00",
+    "fats": "2.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "potato-boiled",
+    "name": "Potato, boiled",
+    "brand": null,
+    "calories": "87.00",
+    "protein": "1.90",
+    "carbohydrates": "20.10",
+    "fats": "0.10",
+    "barcode": null
+  },
+  {
+    "catalog_key": "sweet-potato-baked",
+    "name": "Sweet potato, baked",
+    "brand": null,
+    "calories": "90.00",
+    "protein": "2.00",
+    "carbohydrates": "20.70",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "chicken-breast-raw",
+    "name": "Chicken breast, raw",
+    "brand": null,
+    "calories": "110.00",
+    "protein": "23.10",
+    "carbohydrates": "0.00",
+    "fats": "1.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "turkey-breast-raw",
+    "name": "Turkey breast, raw",
+    "brand": null,
+    "calories": "107.00",
+    "protein": "24.00",
+    "carbohydrates": "0.00",
+    "fats": "1.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "lean-beef-raw",
+    "name": "Lean beef, raw",
+    "brand": null,
+    "calories": "137.00",
+    "protein": "21.40",
+    "carbohydrates": "0.00",
+    "fats": "5.60",
+    "barcode": null
+  },
+  {
+    "catalog_key": "salmon-raw",
+    "name": "Salmon, raw",
+    "brand": null,
+    "calories": "208.00",
+    "protein": "20.40",
+    "carbohydrates": "0.00",
+    "fats": "13.40",
+    "barcode": null
+  },
+  {
+    "catalog_key": "tuna-in-water",
+    "name": "Tuna, canned in water",
+    "brand": null,
+    "calories": "116.00",
+    "protein": "25.50",
+    "carbohydrates": "0.00",
+    "fats": "0.80",
+    "barcode": null
+  },
+  {
+    "catalog_key": "egg-whole",
+    "name": "Egg, whole",
+    "brand": null,
+    "calories": "143.00",
+    "protein": "12.60",
+    "carbohydrates": "0.70",
+    "fats": "9.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "skimmed-milk",
+    "name": "Skimmed milk",
+    "brand": null,
+    "calories": "34.00",
+    "protein": "3.40",
+    "carbohydrates": "5.00",
+    "fats": "0.10",
+    "barcode": null
+  },
+  {
+    "catalog_key": "greek-yogurt-plain",
+    "name": "Greek yogurt, plain",
+    "brand": null,
+    "calories": "97.00",
+    "protein": "9.00",
+    "carbohydrates": "3.90",
+    "fats": "5.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "cottage-cheese",
+    "name": "Cottage cheese",
+    "brand": null,
+    "calories": "98.00",
+    "protein": "11.10",
+    "carbohydrates": "3.40",
+    "fats": "4.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "mozzarella",
+    "name": "Mozzarella",
+    "brand": null,
+    "calories": "280.00",
+    "protein": "28.00",
+    "carbohydrates": "2.20",
+    "fats": "17.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "olive-oil",
+    "name": "Olive oil",
+    "brand": null,
+    "calories": "884.00",
+    "protein": "0.00",
+    "carbohydrates": "0.00",
+    "fats": "100.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "butter",
+    "name": "Butter",
+    "brand": null,
+    "calories": "717.00",
+    "protein": "0.90",
+    "carbohydrates": "0.10",
+    "fats": "81.10",
+    "barcode": null
+  },
+  {
+    "catalog_key": "lentils-cooked",
+    "name": "Lentils, cooked",
+    "brand": null,
+    "calories": "116.00",
+    "protein": "9.00",
+    "carbohydrates": "20.10",
+    "fats": "0.40",
+    "barcode": null
+  },
+  {
+    "catalog_key": "chickpeas-cooked",
+    "name": "Chickpeas, cooked",
+    "brand": null,
+    "calories": "164.00",
+    "protein": "8.90",
+    "carbohydrates": "27.40",
+    "fats": "2.60",
+    "barcode": null
+  },
+  {
+    "catalog_key": "kidney-beans-cooked",
+    "name": "Kidney beans, cooked",
+    "brand": null,
+    "calories": "127.00",
+    "protein": "8.70",
+    "carbohydrates": "22.80",
+    "fats": "0.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "tomato",
+    "name": "Tomato",
+    "brand": null,
+    "calories": "18.00",
+    "protein": "0.90",
+    "carbohydrates": "3.90",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "broccoli",
+    "name": "Broccoli",
+    "brand": null,
+    "calories": "34.00",
+    "protein": "2.80",
+    "carbohydrates": "6.60",
+    "fats": "0.40",
+    "barcode": null
+  },
+  {
+    "catalog_key": "carrot",
+    "name": "Carrot",
+    "brand": null,
+    "calories": "41.00",
+    "protein": "0.90",
+    "carbohydrates": "9.60",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "spinach",
+    "name": "Spinach",
+    "brand": null,
+    "calories": "23.00",
+    "protein": "2.90",
+    "carbohydrates": "3.60",
+    "fats": "0.40",
+    "barcode": null
+  },
+  {
+    "catalog_key": "banana",
+    "name": "Banana",
+    "brand": null,
+    "calories": "89.00",
+    "protein": "1.10",
+    "carbohydrates": "22.80",
+    "fats": "0.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "apple",
+    "name": "Apple",
+    "brand": null,
+    "calories": "52.00",
+    "protein": "0.30",
+    "carbohydrates": "13.80",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "orange",
+    "name": "Orange",
+    "brand": null,
+    "calories": "47.00",
+    "protein": "0.90",
+    "carbohydrates": "11.80",
+    "fats": "0.10",
+    "barcode": null
+  },
+  {
+    "catalog_key": "avocado",
+    "name": "Avocado",
+    "brand": null,
+    "calories": "160.00",
+    "protein": "2.00",
+    "carbohydrates": "8.50",
+    "fats": "14.70",
+    "barcode": null
+  },
+  {
+    "catalog_key": "almonds",
+    "name": "Almonds",
+    "brand": null,
+    "calories": "579.00",
+    "protein": "21.20",
+    "carbohydrates": "21.60",
+    "fats": "49.90",
+    "barcode": null
+  },
+  {
+    "catalog_key": "walnuts",
+    "name": "Walnuts",
+    "brand": null,
+    "calories": "654.00",
+    "protein": "15.20",
+    "carbohydrates": "13.70",
+    "fats": "65.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "pan-de-cristal",
+    "name": "Crystal bread",
+    "brand": null,
+    "calories": "278.00",
+    "protein": "9.00",
+    "carbohydrates": "55.00",
+    "fats": "1.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "tortilla-de-patatas",
+    "name": "Spanish omelette",
+    "brand": null,
+    "calories": "161.00",
+    "protein": "6.60",
+    "carbohydrates": "14.00",
+    "fats": "9.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "gazpacho",
+    "name": "Chilled tomato soup",
+    "brand": null,
+    "calories": "45.00",
+    "protein": "1.20",
+    "carbohydrates": "4.60",
+    "fats": "2.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "salmorejo",
+    "name": "Chilled tomato and bread soup",
+    "brand": null,
+    "calories": "117.00",
+    "protein": "2.00",
+    "carbohydrates": "7.50",
+    "fats": "8.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "paella-valenciana",
+    "name": "Valencian rice dish",
+    "brand": null,
+    "calories": "157.00",
+    "protein": "7.50",
+    "carbohydrates": "20.00",
+    "fats": "5.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "cocido-madrileno",
+    "name": "Madrid-style chickpea stew",
+    "brand": null,
+    "calories": "150.00",
+    "protein": "10.00",
+    "carbohydrates": "12.00",
+    "fats": "6.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "fabada-asturiana",
+    "name": "Asturian white bean stew",
+    "brand": null,
+    "calories": "170.00",
+    "protein": "8.00",
+    "carbohydrates": "16.00",
+    "fats": "7.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "courgette-raw",
+    "name": "Courgette, raw",
+    "brand": null,
+    "calories": "17.00",
+    "protein": "1.20",
+    "carbohydrates": "3.10",
+    "fats": "0.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "aubergine-raw",
+    "name": "Aubergine, raw",
+    "brand": null,
+    "calories": "25.00",
+    "protein": "1.00",
+    "carbohydrates": "5.90",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "catalan-spring-onions-raw",
+    "name": "Catalan spring onions, raw",
+    "brand": null,
+    "calories": "35.00",
+    "protein": "1.30",
+    "carbohydrates": "7.30",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "catalan-spring-onions-grilled",
+    "name": "Catalan spring onions, grilled",
+    "brand": null,
+    "calories": "48.00",
+    "protein": "1.50",
+    "carbohydrates": "8.50",
+    "fats": "1.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "esparragos-blancos-conserva",
+    "name": "White asparagus, canned",
+    "brand": null,
+    "calories": "20.00",
+    "protein": "2.20",
+    "carbohydrates": "2.10",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "alcachofa-cruda",
+    "name": "Artichoke, raw",
+    "brand": null,
+    "calories": "47.00",
+    "protein": "3.30",
+    "carbohydrates": "10.50",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "alcachofa-cocida",
+    "name": "Artichoke, cooked",
+    "brand": null,
+    "calories": "53.00",
+    "protein": "2.90",
+    "carbohydrates": "11.90",
+    "fats": "0.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "pimientos-del-piquillo",
+    "name": "Piquillo peppers, canned",
+    "brand": null,
+    "calories": "25.00",
+    "protein": "1.00",
+    "carbohydrates": "4.50",
+    "fats": "0.40",
+    "barcode": null
+  },
+  {
+    "catalog_key": "bacalao-desalado-crudo",
+    "name": "Desalted cod, raw",
+    "brand": null,
+    "calories": "82.00",
+    "protein": "18.00",
+    "carbohydrates": "0.00",
+    "fats": "0.70",
+    "barcode": null
+  },
+  {
+    "catalog_key": "bacalao-al-pil-pil",
+    "name": "Cod in olive oil sauce",
+    "brand": null,
+    "calories": "170.00",
+    "protein": "18.00",
+    "carbohydrates": "1.00",
+    "fats": "10.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "merluza-cruda",
+    "name": "Hake, raw",
+    "brand": null,
+    "calories": "73.00",
+    "protein": "16.70",
+    "carbohydrates": "0.00",
+    "fats": "0.70",
+    "barcode": null
+  },
+  {
+    "catalog_key": "merluza-cocida",
+    "name": "Hake, cooked",
+    "brand": null,
+    "calories": "90.00",
+    "protein": "20.00",
+    "carbohydrates": "0.00",
+    "fats": "1.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "sardinas-crudas",
+    "name": "Sardines, raw",
+    "brand": null,
+    "calories": "208.00",
+    "protein": "24.60",
+    "carbohydrates": "0.00",
+    "fats": "11.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "sardinas-a-la-plancha",
+    "name": "Sardines, grilled",
+    "brand": null,
+    "calories": "220.00",
+    "protein": "25.00",
+    "carbohydrates": "0.00",
+    "fats": "13.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "pulpo-cocido",
+    "name": "Octopus, cooked",
+    "brand": null,
+    "calories": "82.00",
+    "protein": "14.90",
+    "carbohydrates": "2.20",
+    "fats": "1.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "mejillones-cocidos",
+    "name": "Mussels, cooked",
+    "brand": null,
+    "calories": "172.00",
+    "protein": "24.00",
+    "carbohydrates": "7.00",
+    "fats": "4.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "gambas-crudas",
+    "name": "Prawns, raw",
+    "brand": null,
+    "calories": "85.00",
+    "protein": "20.00",
+    "carbohydrates": "0.60",
+    "fats": "0.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "gambas-cocidas",
+    "name": "Prawns, cooked",
+    "brand": null,
+    "calories": "99.00",
+    "protein": "24.00",
+    "carbohydrates": "0.20",
+    "fats": "0.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "jamon-serrano",
+    "name": "Serrano ham",
+    "brand": null,
+    "calories": "241.00",
+    "protein": "31.00",
+    "carbohydrates": "0.00",
+    "fats": "13.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "jamon-iberico",
+    "name": "Iberian ham",
+    "brand": null,
+    "calories": "375.00",
+    "protein": "34.00",
+    "carbohydrates": "0.00",
+    "fats": "25.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "chorizo",
+    "name": "Spanish chorizo",
+    "brand": null,
+    "calories": "455.00",
+    "protein": "24.00",
+    "carbohydrates": "2.00",
+    "fats": "38.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "morcilla",
+    "name": "Spanish blood sausage",
+    "brand": null,
+    "calories": "379.00",
+    "protein": "14.00",
+    "carbohydrates": "16.00",
+    "fats": "29.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "lomo-embuchado",
+    "name": "Cured pork loin",
+    "brand": null,
+    "calories": "286.00",
+    "protein": "40.00",
+    "carbohydrates": "1.00",
+    "fats": "13.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "queso-manchego",
+    "name": "Manchego cheese",
+    "brand": null,
+    "calories": "455.00",
+    "protein": "25.00",
+    "carbohydrates": "1.50",
+    "fats": "37.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "queso-fresco-burgos",
+    "name": "Burgos fresh cheese",
+    "brand": null,
+    "calories": "174.00",
+    "protein": "13.00",
+    "carbohydrates": "4.00",
+    "fats": "11.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "requeson",
+    "name": "Curd cheese",
+    "brand": null,
+    "calories": "174.00",
+    "protein": "11.00",
+    "carbohydrates": "3.00",
+    "fats": "11.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "red-bell-pepper-raw",
+    "name": "Red bell pepper, raw",
+    "brand": null,
+    "calories": "31.00",
+    "protein": "1.00",
+    "carbohydrates": "6.00",
+    "fats": "0.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "tomate-triturado",
+    "name": "Crushed tomatoes",
+    "brand": null,
+    "calories": "29.00",
+    "protein": "1.40",
+    "carbohydrates": "4.80",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "green-bell-pepper-raw",
+    "name": "Green bell pepper, raw",
+    "brand": null,
+    "calories": "20.00",
+    "protein": "0.90",
+    "carbohydrates": "4.60",
+    "fats": "0.20",
+    "barcode": null
+  },
+  {
+    "catalog_key": "aceitunas-verdes",
+    "name": "Green olives",
+    "brand": null,
+    "calories": "145.00",
+    "protein": "1.00",
+    "carbohydrates": "3.80",
+    "fats": "15.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "aceitunas-negras",
+    "name": "Black olives",
+    "brand": null,
+    "calories": "116.00",
+    "protein": "0.80",
+    "carbohydrates": "6.30",
+    "fats": "10.90",
+    "barcode": null
+  },
+  {
+    "catalog_key": "avellanas",
+    "name": "Hazelnuts",
+    "brand": null,
+    "calories": "628.00",
+    "protein": "15.00",
+    "carbohydrates": "17.00",
+    "fats": "61.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "pinones",
+    "name": "Pine nuts",
+    "brand": null,
+    "calories": "673.00",
+    "protein": "13.70",
+    "carbohydrates": "13.10",
+    "fats": "68.40",
+    "barcode": null
+  },
+  {
+    "catalog_key": "membrillo",
+    "name": "Quince paste",
+    "brand": null,
+    "calories": "278.00",
+    "protein": "0.20",
+    "carbohydrates": "69.00",
+    "fats": "0.10",
+    "barcode": null
+  },
+  {
+    "catalog_key": "sobrasada",
+    "name": "Majorcan spreadable sausage",
+    "brand": null,
+    "calories": "570.00",
+    "protein": "13.00",
+    "carbohydrates": "3.00",
+    "fats": "55.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "butifarra",
+    "name": "Catalan pork sausage",
+    "brand": null,
+    "calories": "291.00",
+    "protein": "15.00",
+    "carbohydrates": "2.00",
+    "fats": "24.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "fuet",
+    "name": "Catalan cured sausage",
+    "brand": null,
+    "calories": "453.00",
+    "protein": "24.00",
+    "carbohydrates": "1.00",
+    "fats": "38.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "bonito-del-norte-en-aceite",
+    "name": "Northern albacore tuna in olive oil",
+    "brand": null,
+    "calories": "221.00",
+    "protein": "27.00",
+    "carbohydrates": "0.00",
+    "fats": "12.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "caballa-en-aceite",
+    "name": "Mackerel in olive oil",
+    "brand": null,
+    "calories": "286.00",
+    "protein": "18.00",
+    "carbohydrates": "0.00",
+    "fats": "24.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "conejo-crudo",
+    "name": "Rabbit, raw",
+    "brand": null,
+    "calories": "136.00",
+    "protein": "21.00",
+    "carbohydrates": "0.00",
+    "fats": "5.50",
+    "barcode": null
+  },
+  {
+    "catalog_key": "conejo-cocido",
+    "name": "Rabbit, cooked",
+    "brand": null,
+    "calories": "173.00",
+    "protein": "33.00",
+    "carbohydrates": "0.00",
+    "fats": "4.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "lomo-de-cerdo-crudo",
+    "name": "Pork loin, raw",
+    "brand": null,
+    "calories": "143.00",
+    "protein": "22.00",
+    "carbohydrates": "0.00",
+    "fats": "5.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "lomo-de-cerdo-cocido",
+    "name": "Pork loin, cooked",
+    "brand": null,
+    "calories": "196.00",
+    "protein": "30.00",
+    "carbohydrates": "0.00",
+    "fats": "8.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "white-rice-cooked",
+    "name": "White rice, cooked",
+    "brand": null,
+    "calories": "130.00",
+    "protein": "2.40",
+    "carbohydrates": "28.20",
+    "fats": "0.30",
+    "barcode": null
+  },
+  {
+    "catalog_key": "wholewheat-pasta-cooked",
+    "name": "Wholewheat pasta, cooked",
+    "brand": null,
+    "calories": "149.00",
+    "protein": "5.80",
+    "carbohydrates": "30.90",
+    "fats": "0.90",
+    "barcode": null
+  },
+  {
+    "catalog_key": "potato-raw",
+    "name": "Potato, raw",
+    "brand": null,
+    "calories": "77.00",
+    "protein": "2.00",
+    "carbohydrates": "17.00",
+    "fats": "0.10",
+    "barcode": null
+  },
+  {
+    "catalog_key": "sweet-potato-raw",
+    "name": "Sweet potato, raw",
+    "brand": null,
+    "calories": "86.00",
+    "protein": "1.60",
+    "carbohydrates": "20.10",
+    "fats": "0.10",
+    "barcode": null
+  },
+  {
+    "catalog_key": "chicken-breast-cooked",
+    "name": "Chicken breast, cooked",
+    "brand": null,
+    "calories": "165.00",
+    "protein": "31.00",
+    "carbohydrates": "0.00",
+    "fats": "3.60",
+    "barcode": null
+  },
+  {
+    "catalog_key": "turkey-breast-cooked",
+    "name": "Turkey breast, cooked",
+    "brand": null,
+    "calories": "135.00",
+    "protein": "29.00",
+    "carbohydrates": "0.00",
+    "fats": "1.80",
+    "barcode": null
+  },
+  {
+    "catalog_key": "lean-beef-cooked",
+    "name": "Lean beef, cooked",
+    "brand": null,
+    "calories": "217.00",
+    "protein": "26.00",
+    "carbohydrates": "0.00",
+    "fats": "12.00",
+    "barcode": null
+  },
+  {
+    "catalog_key": "salmon-cooked",
+    "name": "Salmon, cooked",
+    "brand": null,
+    "calories": "232.00",
+    "protein": "25.00",
+    "carbohydrates": "0.00",
+    "fats": "14.00",
+    "barcode": null
+  }
+]

@@ -80,7 +80,8 @@ CREATE TABLE food (
     carbohydrates DECIMAL(8,2) NOT NULL,
     fats DECIMAL(8,2) NOT NULL,
     barcode VARCHAR(50),
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    catalog_key VARCHAR(100) UNIQUE
 );
 
 -- Recipes with their declared serving count.

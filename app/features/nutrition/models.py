@@ -19,6 +19,7 @@ food = sa.Table(
     sa.Column("fats", sa.Numeric(8, 2), nullable=False),
     sa.Column("barcode", sa.String(50), nullable=True),
     sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("catalog_key", sa.String(100), nullable=True, unique=True),
 )
 
 recipe = sa.Table(
