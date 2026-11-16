@@ -79,9 +79,11 @@ routine = sa.Table(
     sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=True),
     sa.Column("name", sa.String(150), nullable=False),
     sa.Column("description", sa.Text(), nullable=True),
+    sa.Column("picture_blob_name", sa.Text(), nullable=True),
     sa.Column(
         "created_at", sa.DateTime(), nullable=True, server_default=sa.text("CURRENT_TIMESTAMP")
     ),
+    sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
 )
 
 routine_exercise = sa.Table(

@@ -377,7 +377,7 @@ creates a new slot; existing slots omitted from the replacement are removed. Ret
 a slot with the same exercise preserves its notes/default sets. Changing its exercise
 clears incompatible defaults. Selections may include `sets: [{"reps": 8, "weight_kg": "80.00"}]` to save gym defaults.
 Set order determines set numbers; repetitions are positive integers and kilograms are
-nonnegative decimals (at most two decimal places and 999999.99 kg). Each slot supports
+positive decimals (at most two decimal places and 999999.99 kg). Each slot supports
 up to 100 sets. Omitting `sets` preserves defaults for a retained exercise; `sets: []`
 clears defaults and explicit `null` is rejected. Set changes commit with the routine
 transaction. Notes editing and session recording remain separate work.

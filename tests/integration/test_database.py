@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
@@ -58,3 +59,167 @@ def test_alembic_bootstrap_and_metadata_consistency(integration_url, monkeypatch
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     command.upgrade(config, "head")
     command.check(config)
+
+
+@pytest.mark.anyio
+async def test_routine_cover_upgrade_preserves_existing_templates(integration_url):
+    schema = "routine_upgrade_" + uuid4().hex
+    engine = create_async_engine(integration_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+
+            def migrate(conn, revision):
+                config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+                config.attributes["connection"] = conn
+                command.upgrade(config, revision)
+
+            await connection.run_sync(migrate, "20261102_01")
+            await connection.execute(
+                text(
+                    "INSERT INTO routine (name, description) "
+                    "VALUES ('Legacy routine', 'Preserved note')"
+                )
+            )
+            await connection.run_sync(migrate, "head")
+            result = (
+                await connection.execute(
+                    text("SELECT name, description, picture_blob_name FROM routine")
+                )
+            ).one()
+            assert tuple(result) == ("Legacy routine", "Preserved note", None)
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_routine_soft_delete_upgrade_preserves_covers_and_completed_history(integration_url):
+    schema = "routine_retire_" + uuid4().hex
+    engine = create_async_engine(integration_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+
+            def migrate(conn, revision):
+                config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+                config.attributes["connection"] = conn
+                command.upgrade(config, revision)
+
+            await connection.run_sync(migrate, "20261103_01")
+            user_id = await connection.scalar(text("INSERT INTO users DEFAULT VALUES RETURNING id"))
+            routine_id = await connection.scalar(
+                text(
+                    "INSERT INTO routine (user_id, name, description, picture_blob_name) "
+                    "VALUES (:user_id, 'Legacy routine', 'Preserved note', "
+                    "'private-cover.jpg') RETURNING id"
+                ),
+                {"user_id": user_id},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO training_session "
+                    "(user_id, routine_id, activity_type, started_at, ended_at) "
+                    "VALUES (:user_id, :routine_id, 'gym', "
+                    "'2026-11-01T10:00:00Z', '2026-11-01T11:00:00Z')"
+                ),
+                {"user_id": user_id, "routine_id": routine_id},
+            )
+            await connection.run_sync(migrate, "head")
+            row = (
+                await connection.execute(
+                    text("SELECT id, name, description, picture_blob_name, deleted_at FROM routine")
+                )
+            ).one()
+            assert tuple(row) == (
+                routine_id,
+                "Legacy routine",
+                "Preserved note",
+                "private-cover.jpg",
+                None,
+            )
+            assert (
+                await connection.scalar(text("SELECT routine_id FROM training_session"))
+                == routine_id
+            )
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_cardio_upgrade_preserves_manual_records_and_historical_sets(integration_url):
+    schema = "cardio_upgrade_" + uuid4().hex
+    engine = create_async_engine(integration_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+
+            def migrate(conn, revision):
+                config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+                config.attributes["connection"] = conn
+                command.upgrade(config, revision)
+
+            await connection.run_sync(migrate, "20261103_02")
+            user_id = await connection.scalar(text("INSERT INTO users DEFAULT VALUES RETURNING id"))
+            imported = await connection.scalar(
+                text("""
+                INSERT INTO exercise (activity_type, name, source, external_id,
+                                      imported_at, exercise_types)
+                VALUES ('gym', 'Old cardio', 'ascend_edb_v2',
+                        'provider-cardio', now(), ARRAY[' Cardio ']) RETURNING id
+            """)
+            )
+            await connection.execute(
+                text("""
+                INSERT INTO exercise (user_id, activity_type, name, source, exercise_types)
+                VALUES (:user_id, 'gym', 'Manual', 'manual', ARRAY['CARDIO'])
+            """),
+                {"user_id": user_id},
+            )
+            routine_id = await connection.scalar(
+                text(
+                    "INSERT INTO routine (user_id, name) VALUES (:user_id, 'Legacy') RETURNING id"
+                ),
+                {"user_id": user_id},
+            )
+            slot_id = await connection.scalar(
+                text(
+                    "INSERT INTO routine_exercise (routine_id, exercise_id, exercise_order) "
+                    "VALUES (:routine_id, :exercise_id, 1) RETURNING id"
+                ),
+                {"routine_id": routine_id, "exercise_id": imported},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO routine_exercise_set (routine_exercise_id, "
+                    "set_number, reps, weight_kg) "
+                    "VALUES (:slot_id, 1, 8, 20)"
+                ),
+                {"slot_id": slot_id},
+            )
+            await connection.run_sync(migrate, "head")
+            rows = (
+                await connection.execute(
+                    text("SELECT name, activity_type FROM exercise ORDER BY id")
+                )
+            ).all()
+            assert [tuple(row) for row in rows] == [("Old cardio", "cardio"), ("Manual", "gym")]
+            row = (
+                await connection.execute(
+                    text(
+                        "SELECT reps, weight_kg, duration_seconds, distance_km "
+                        "FROM routine_exercise_set"
+                    )
+                )
+            ).one()
+            assert tuple(row) == (8, Decimal("20"), None, None)
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()

@@ -1,25 +1,47 @@
 """Routine editing and exercise selection endpoints."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query, Response
+from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, UploadFile
 from pydantic import StringConstraints
 
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
-from app.features.training import drafts, service, sessions
-from app.features.training.errors import IdempotencyConflict, InvalidSelection, TrainingNotFound
+from app.features.accounts.errors import (
+    InvalidPicture,
+    PictureMissing,
+    PictureStorageUnavailable,
+    PictureTooLarge,
+    UnsupportedPicture,
+)
+from app.features.training import (
+    creation,
+    deletion,
+    drafts,
+    evolution,
+    history,
+    pictures,
+    service,
+    sessions,
+)
+from app.features.training.errors import (
+    IdempotencyConflict,
+    InvalidSelection,
+    RoutineInUse,
+    TrainingNotFound,
+)
+from app.features.training.evolution_schemas import DistanceUnit, ExerciseEvolution
 from app.features.training.schemas import (
     BodyPartList,
     DraftFinish,
     DraftResponse,
     DraftSnapshot,
     ExerciseConfiguration,
+    ExerciseHistoryPage,
     ExercisePage,
     ExerciseResponse,
     MuscleGroupList,
-    RoutineCreate,
     RoutinePage,
     RoutinePatch,
     RoutineResponse,
@@ -35,6 +57,9 @@ Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0, le=2**63 - 1)]
 BodyPart = Annotated[str, StringConstraints(max_length=100)]
 ROUTINE_NOT_FOUND_DETAIL = "Routine not found"
+EXERCISE_NOT_FOUND_DETAIL = "Exercise not found"
+PICTURE_STORAGE_UNAVAILABLE_DETAIL = "Routine picture storage is unavailable"
+PICTURE_TOO_LARGE_DETAIL = "Routine picture exceeds 5 MiB limit"
 
 
 @router.get("/exercises")
@@ -44,11 +69,12 @@ async def get_exercises(
     muscle_group: Annotated[str | None, Query(max_length=100)] = None,
     name: Annotated[str | None, Query(max_length=200)] = None,
     body_part: Annotated[list[BodyPart] | None, Query(max_length=30)] = None,
+    activity_type: Literal["gym", "cardio"] | None = None,
     limit: Limit = 50,
     offset: Offset = 0,
 ) -> ExercisePage:
     return await service.list_exercises(
-        session, user.id, limit, offset, muscle_group, name, body_part
+        session, user.id, limit, offset, muscle_group, name, body_part, activity_type
     )
 
 
@@ -62,14 +88,55 @@ async def get_muscle_groups(user: CurrentUser, session: DatabaseSession) -> Musc
     return await service.list_muscle_groups(session, user.id)
 
 
-@router.get("/exercises/{exercise_id}", responses={404: {"description": "Exercise not found"}})
+@router.get("/exercises/{exercise_id}", responses={404: {"description": EXERCISE_NOT_FOUND_DETAIL}})
 async def get_exercise(
     exercise_id: ResourceId, user: CurrentUser, session: DatabaseSession
 ) -> ExerciseResponse:
     try:
         return await service.get_exercise(session, user.id, exercise_id)
     except TrainingNotFound:
-        raise HTTPException(404, "Exercise not found") from None
+        raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None
+
+
+@router.get(
+    "/exercises/{exercise_id}/history",
+    responses={404: {"description": EXERCISE_NOT_FOUND_DETAIL}},
+)
+async def get_exercise_history(
+    exercise_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    limit: Limit = 20,
+    offset: Offset = 0,
+    weight_unit: WeightUnit = "kg",
+) -> ExerciseHistoryPage:
+    try:
+        item = await service.get_exercise(session, user.id, exercise_id)
+    except TrainingNotFound:
+        raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None
+    return await history.exercise_history(
+        session, user.id, exercise_id, item.activity_type, limit, offset, weight_unit
+    )
+
+
+@router.get(
+    "/exercises/{exercise_id}/evolution",
+    responses={404: {"description": EXERCISE_NOT_FOUND_DETAIL}},
+)
+async def get_exercise_evolution(
+    exercise_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    weight_unit: WeightUnit = "kg",
+    distance_unit: DistanceUnit = "km",
+) -> ExerciseEvolution:
+    try:
+        item = await service.get_exercise(session, user.id, exercise_id)
+    except TrainingNotFound:
+        raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None
+    return await evolution.exercise_evolution(
+        session, user.id, exercise_id, item.activity_type, weight_unit, distance_unit
+    )
 
 
 @router.get("/routines")
@@ -102,20 +169,46 @@ async def get_routine(
 @router.post(
     "/routines",
     status_code=201,
+    openapi_extra={"requestBody": creation.request_body_schema()},
     responses={
         404: {"description": ROUTINE_NOT_FOUND_DETAIL},
-        422: {"description": "Exercise selection is unavailable"},
+        413: {"description": "Routine content, image or request exceeds size limit"},
+        415: {"description": "Unsupported request or image type"},
+        422: {"description": "Invalid routine content, image or exercise selection"},
+        503: {"description": PICTURE_STORAGE_UNAVAILABLE_DETAIL},
     },
 )
 async def post_routine(
-    data: RoutineCreate, user: CurrentUser, session: DatabaseSession, weight_unit: WeightUnit = "kg"
+    request: Request, user: CurrentUser, session: DatabaseSession, weight_unit: WeightUnit = "kg"
 ) -> RoutineResponse:
     try:
-        return await service.create_routine(session, user.id, data, weight_unit)
+        data, file = await creation.parse_create(request)
+        if file is None:
+            return await service.create_routine(session, user.id, data, weight_unit)
+        image = await file.read(pictures.MAX_PICTURE_BYTES + 1)
+        return await pictures.create_with_picture(
+            session,
+            user.id,
+            data,
+            request.app.state.blob_storage,
+            image,
+            file.content_type,
+            weight_unit,
+        )
     except InvalidSelection:
         raise HTTPException(422, "Exercise selection is unavailable") from None
     except TrainingNotFound:
         raise HTTPException(404, ROUTINE_NOT_FOUND_DETAIL) from None
+    except PictureTooLarge:
+        raise HTTPException(413, PICTURE_TOO_LARGE_DETAIL) from None
+    except UnsupportedPicture:
+        raise HTTPException(415, "Use a JPEG, PNG or WebP image") from None
+    except InvalidPicture:
+        raise HTTPException(422, "Use a valid image with at most 16 million pixels") from None
+    except PictureStorageUnavailable:
+        raise HTTPException(503, PICTURE_STORAGE_UNAVAILABLE_DETAIL) from None
+    finally:
+        await request.close()
 
 
 @router.patch(
@@ -138,6 +231,108 @@ async def patch_routine(
         raise HTTPException(404, ROUTINE_NOT_FOUND_DETAIL) from None
     except InvalidSelection:
         raise HTTPException(422, "Exercise or routine slot selection is unavailable") from None
+
+
+@router.delete(
+    "/routines/{routine_id}",
+    status_code=204,
+    responses={
+        404: {"description": ROUTINE_NOT_FOUND_DETAIL},
+        409: {"description": "Finish or discard the workout using this routine before deleting it"},
+    },
+)
+async def delete_routine(
+    routine_id: ResourceId, user: CurrentUser, session: DatabaseSession, request: Request
+) -> Response:
+    try:
+        await deletion.delete_routine(session, user.id, routine_id, request.app.state.blob_storage)
+        return Response(status_code=204)
+    except TrainingNotFound:
+        raise HTTPException(404, ROUTINE_NOT_FOUND_DETAIL) from None
+    except RoutineInUse:
+        raise HTTPException(
+            409, "Finish or discard the workout using this routine before deleting it"
+        ) from None
+
+
+@router.post(
+    "/routines/{routine_id}/picture",
+    responses={
+        404: {"description": ROUTINE_NOT_FOUND_DETAIL},
+        413: {"description": PICTURE_TOO_LARGE_DETAIL},
+        415: {"description": "Unsupported image type"},
+        422: {"description": "Invalid routine picture"},
+        503: {"description": PICTURE_STORAGE_UNAVAILABLE_DETAIL},
+    },
+)
+async def post_routine_picture(
+    routine_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    request: Request,
+    file: UploadFile,
+) -> RoutineResponse:
+    try:
+        data = await file.read(pictures.MAX_PICTURE_BYTES + 1)
+        return await pictures.upload_picture(
+            session, user.id, routine_id, request.app.state.blob_storage, data, file.content_type
+        )
+    except TrainingNotFound:
+        raise HTTPException(404, ROUTINE_NOT_FOUND_DETAIL) from None
+    except PictureTooLarge:
+        raise HTTPException(413, PICTURE_TOO_LARGE_DETAIL) from None
+    except UnsupportedPicture:
+        raise HTTPException(415, "Use a JPEG, PNG or WebP image") from None
+    except InvalidPicture:
+        raise HTTPException(422, "Use a valid image with at most 16 million pixels") from None
+    except PictureStorageUnavailable:
+        raise HTTPException(503, PICTURE_STORAGE_UNAVAILABLE_DETAIL) from None
+    finally:
+        await file.close()
+
+
+@router.get(
+    "/routines/{routine_id}/picture",
+    responses={
+        404: {"description": "Routine picture not found"},
+        503: {"description": PICTURE_STORAGE_UNAVAILABLE_DETAIL},
+    },
+)
+async def get_routine_picture(
+    routine_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    request: Request,
+) -> Response:
+    try:
+        data = await pictures.read_picture(
+            session, user.id, routine_id, request.app.state.blob_storage
+        )
+        return Response(
+            data, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"}
+        )
+    except TrainingNotFound, PictureMissing:
+        raise HTTPException(404, "Routine picture not found") from None
+    except PictureStorageUnavailable:
+        raise HTTPException(503, PICTURE_STORAGE_UNAVAILABLE_DETAIL) from None
+
+
+@router.delete(
+    "/routines/{routine_id}/picture",
+    responses={404: {"description": ROUTINE_NOT_FOUND_DETAIL}},
+)
+async def delete_routine_picture(
+    routine_id: ResourceId,
+    user: CurrentUser,
+    session: DatabaseSession,
+    request: Request,
+) -> RoutineResponse:
+    try:
+        return await pictures.remove_picture(
+            session, user.id, routine_id, request.app.state.blob_storage
+        )
+    except TrainingNotFound:
+        raise HTTPException(404, ROUTINE_NOT_FOUND_DETAIL) from None
 
 
 @router.post(
@@ -260,7 +455,7 @@ async def finish_draft(
 
 @router.get(
     "/exercises/{exercise_id}/last-configuration",
-    responses={404: {"description": "Exercise not found"}},
+    responses={404: {"description": EXERCISE_NOT_FOUND_DETAIL}},
 )
 async def get_last_configuration(
     exercise_id: ResourceId,
@@ -271,4 +466,4 @@ async def get_last_configuration(
     try:
         return await service.get_last_configuration(session, user.id, exercise_id, weight_unit)
     except TrainingNotFound:
-        raise HTTPException(404, "Exercise not found") from None
+        raise HTTPException(404, EXERCISE_NOT_FOUND_DETAIL) from None

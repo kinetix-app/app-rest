@@ -101,18 +101,21 @@ async def test_posts_leagues_upgrade_persistence_and_downgrade(integration_url):
                     ("league_score", "(league_id,user_id,round_id,score) VALUES (1,1,1,0)"),
                     ("post_comment", "(post_id,user_id,comment) VALUES (99999,1,'Invalid')"),
                 ):
-                    with pytest.raises(IntegrityError):
-                        async with connection.begin_nested():
-                            await connection.execute(text(f"INSERT INTO {table} {values}"))
+                    statement = text(f"INSERT INTO {table} {values}")
+                    savepoint = await connection.begin_nested()
+                    try:
+                        with pytest.raises(IntegrityError):
+                            await connection.execute(statement)
+                    finally:
+                        await savepoint.rollback()
+                invalid_post = post.insert().values(
+                    text="Invalid",
+                    user_id=user_id,
+                    visibility="INVALID",
+                    type=PostType.SESSION,
+                )
                 with pytest.raises(StatementError):
-                    await connection.execute(
-                        post.insert().values(
-                            text="Invalid",
-                            user_id=user_id,
-                            visibility="INVALID",
-                            type=PostType.SESSION,
-                        )
-                    )
+                    await connection.execute(invalid_post)
                 # Database categories deliberately have no CHECK or native enum restriction.
                 await connection.execute(text("UPDATE post SET visibility='OTHER'"))
                 assert (
