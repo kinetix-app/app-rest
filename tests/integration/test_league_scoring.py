@@ -262,3 +262,84 @@ async def test_missing_inputs_and_closed_source_are_not_credited(league_api):  #
             )
             == 10
         )
+
+
+async def test_same_routine_sources_use_each_leagues_local_start_day(league_api):  # noqa: F811
+    from app.features.training.models import routine
+
+    client, sessions = league_api
+    auth = httpx.BasicAuth("alice", "password")
+    user = (await client.get("/api/v1/me", auth=auth)).json()["id"]
+    first = datetime(2026, 11, 17, 0, 30, tzinfo=UTC)
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(Profile).where(Profile.user_id == user).values(weight_kg=80)
+        )
+        ids = []
+        for zone in ("UTC", "America/Los_Angeles"):
+            lid = await session.scalar(
+                league.insert()
+                .values(name=zone, timezone=zone, created_by=user)
+                .returning(league.c.id)
+            )
+            await session.execute(
+                league_member.insert().values(
+                    league_id=lid, user_id=user, role="admin", joined_at=first - timedelta(days=1)
+                )
+            )
+            ids.append(lid)
+        rid = await session.scalar(
+            routine.insert().values(user_id=user, name="Same template").returning(routine.c.id)
+        )
+        eid = await session.scalar(
+            exercise.insert()
+            .values(user_id=user, name="Gym", activity_type="gym")
+            .returning(exercise.c.id)
+        )
+        for started, reps in ((first, 10), (first + timedelta(hours=23), 20)):
+            ended = started + timedelta(hours=1)
+            sid = await session.scalar(
+                training_session.insert()
+                .values(
+                    user_id=user,
+                    routine_id=rid,
+                    activity_type="gym",
+                    started_at=started,
+                    ended_at=ended,
+                )
+                .returning(training_session.c.id)
+            )
+            occurrence = await session.scalar(
+                session_exercise.insert()
+                .values(session_id=sid, exercise_id=eid, exercise_order=1)
+                .returning(session_exercise.c.id)
+            )
+            await session.execute(
+                exercise_set.insert().values(
+                    session_exercise_id=occurrence,
+                    set_number=1,
+                    reps=reps,
+                    weight_kg=80,
+                    completed=True,
+                )
+            )
+            await credit_completed_session(session, user, sid, now=ended + timedelta(seconds=1))
+    async with sessions() as session:
+        rows = (
+            (
+                await session.execute(
+                    sa.select(league_daily_score).order_by(
+                        league_daily_score.c.league_id, league_daily_score.c.local_day
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        utc = [row for row in rows if row.league_id == ids[0]]
+        la = [row for row in rows if row.league_id == ids[1]]
+        assert [(str(row.local_day), int(row.score)) for row in utc] == [("2026-11-17", 20)]
+        assert [(str(row.local_day), int(row.score)) for row in la] == [
+            ("2026-11-16", 10),
+            ("2026-11-17", 20),
+        ]
