@@ -227,7 +227,8 @@ CREATE TABLE training_session (
     notes TEXT,
     client_session_id UUID,
     payload_fingerprint VARCHAR(64),
-    UNIQUE (user_id, client_session_id)
+    UNIQUE (user_id, client_session_id),
+    UNIQUE (id, user_id)
 );
 
 -- Exercises actually recorded in a session, independent of template edits.
@@ -343,14 +344,40 @@ CREATE TABLE league (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    created_by BIGINT NOT NULL REFERENCES users(id)
+    created_by BIGINT NOT NULL REFERENCES users(id),
+    timezone VARCHAR(100)
+);
+
+-- Versioned rounds and stable results leave legacy DATE rounds untouched.
+CREATE TABLE league_scoring_round (
+    id BIGSERIAL PRIMARY KEY,
+    league_id BIGINT NOT NULL REFERENCES league(id),
+    start_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    UNIQUE (league_id, start_at),
+    UNIQUE (league_id, id)
+);
+
+CREATE TABLE league_result (
+    id BIGSERIAL PRIMARY KEY,
+    league_id BIGINT NOT NULL,
+    round_id BIGINT NOT NULL UNIQUE,
+    snapshot JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    UNIQUE (league_id, id),
+    FOREIGN KEY (league_id, round_id) REFERENCES league_scoring_round (league_id, id)
 );
 
 CREATE TABLE league_member (
     user_id BIGINT NOT NULL REFERENCES users(id),
     league_id BIGINT NOT NULL REFERENCES league(id),
     joined_date DATE DEFAULT CURRENT_DATE NOT NULL,
-    PRIMARY KEY (user_id, league_id)
+    joined_at TIMESTAMP WITH TIME ZONE,
+    -- Values: admin, member. NULL denotes an unconverted legacy membership.
+    role VARCHAR(16),
+    last_seen_result_id BIGINT,
+    PRIMARY KEY (user_id, league_id),
+    FOREIGN KEY (league_id, last_seen_result_id) REFERENCES league_result (league_id, id)
 );
 
 CREATE TABLE league_round (
@@ -367,4 +394,44 @@ CREATE TABLE league_score (
     score INTEGER NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     PRIMARY KEY (league_id, user_id, round_id)
+);
+
+
+-- Only hashes of temporary invitation tokens are stored.
+CREATE TABLE league_invitation (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    league_id BIGINT NOT NULL REFERENCES league(id),
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+-- Immutable completion inputs; score is the final HALF_UP integer or NULL if ineligible.
+CREATE TABLE league_session_calculation (
+    session_id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    score NUMERIC(40,0),
+    volume_kg_reps NUMERIC(40,6) NOT NULL,
+    duration_us BIGINT NOT NULL,
+    body_weight_kg NUMERIC(10,6),
+    formula_version VARCHAR(100) NOT NULL,
+    UNIQUE (session_id, user_id),
+    FOREIGN KEY (session_id, user_id) REFERENCES training_session (id, user_id)
+);
+
+-- One winner per member and league-local start date with source provenance.
+CREATE TABLE league_daily_score (
+    league_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    local_day DATE NOT NULL,
+    round_id BIGINT NOT NULL,
+    session_id BIGINT NOT NULL,
+    score NUMERIC(40,0) NOT NULL,
+    volume_kg_reps NUMERIC(40,6) NOT NULL,
+    duration_us BIGINT NOT NULL,
+    body_weight_kg NUMERIC(10,6) NOT NULL,
+    ended_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    formula_version VARCHAR(100) NOT NULL,
+    PRIMARY KEY (league_id, user_id, local_day),
+    FOREIGN KEY (user_id, league_id) REFERENCES league_member (user_id, league_id),
+    FOREIGN KEY (league_id, round_id) REFERENCES league_scoring_round (league_id, id),
+    FOREIGN KEY (session_id, user_id) REFERENCES league_session_calculation (session_id, user_id)
 );
