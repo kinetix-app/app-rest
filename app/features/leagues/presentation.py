@@ -10,6 +10,11 @@ from app.features.leagues.models import league_member
 _http_url = TypeAdapter(HttpUrl)
 
 
+def picture_url(league_id: int, name: str | None) -> str | None:
+    revision = name.rsplit("/", 1)[-1].removesuffix(".jpg") if name else None
+    return f"/api/v1/leagues/{league_id}/picture?v={revision}" if revision else None
+
+
 def member_picture_url(
     league_id: int, user_id: int, blob_name: str | None, public_url: str | None
 ) -> str | None:

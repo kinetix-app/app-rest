@@ -20,8 +20,8 @@ from app.features.leagues.schemas import (
     LeagueCreate,
     LeagueCreated,
     LeagueDetail,
+    LeagueListItem,
     LeaguePatch,
-    LeagueSummary,
 )
 
 router = APIRouter(prefix="/leagues", tags=["leagues"])
@@ -30,7 +30,7 @@ router.include_router(pictures_router)
 
 
 @router.get("")
-async def list_leagues(user: CurrentUser, session: DatabaseSession) -> list[LeagueSummary]:
+async def list_leagues(user: CurrentUser, session: DatabaseSession) -> list[LeagueListItem]:
     return await service.list_leagues(session, user.id)
 
 

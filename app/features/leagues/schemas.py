@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Role = Literal["admin", "member"]
@@ -36,6 +36,11 @@ class LeagueSummary(BaseModel):
     timezone: str | None
     role: Role | None
     picture_url: str | None = None
+
+
+class LeagueListItem(LeagueSummary):
+    member_count: int = Field(ge=0)
+    current_week_position: int | None = Field(ge=1)
 
 
 class LeagueCreated(LeagueSummary):

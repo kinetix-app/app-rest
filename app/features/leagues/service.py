@@ -15,8 +15,9 @@ from app.features.leagues.errors import (
     LeagueForbidden,
     LeagueNotFound,
 )
+from app.features.leagues.listing import list_leagues as list_leagues
 from app.features.leagues.models import league, league_invitation, league_member
-from app.features.leagues.presentation import member_picture_url
+from app.features.leagues.presentation import member_picture_url, picture_url
 from app.features.leagues.schemas import (
     InvitationCreated,
     InvitationPreview,
@@ -25,33 +26,7 @@ from app.features.leagues.schemas import (
     LeagueDetail,
     LeagueMember,
     LeaguePatch,
-    LeagueSummary,
 )
-
-
-def picture_url(league_id: int, name: str | None) -> str | None:
-    revision = name.rsplit("/", 1)[-1].removesuffix(".jpg") if name else None
-    return f"/api/v1/leagues/{league_id}/picture?v={revision}" if revision else None
-
-
-async def list_leagues(session: AsyncSession, user_id: int) -> list[LeagueSummary]:
-    rows = (
-        await session.execute(
-            sa.select(
-                league.c.id,
-                league.c.name,
-                league.c.timezone,
-                league.c.picture_blob_name,
-                league_member.c.role,
-            )
-            .join(league_member, league_member.c.league_id == league.c.id)
-            .where(league_member.c.user_id == user_id)
-            .order_by(league.c.id)
-        )
-    ).mappings()
-    return [
-        LeagueSummary(**row, picture_url=picture_url(row.id, row.picture_blob_name)) for row in rows
-    ]
 
 
 async def create_league(session: AsyncSession, user_id: int, data: LeagueCreate) -> LeagueCreated:
