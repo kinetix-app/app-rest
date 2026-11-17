@@ -52,7 +52,10 @@ def test_large_decoded_image_is_rejected():
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("path", ["/api/v1/me/profile/picture", "/api/v1/routines/123/picture"])
+@pytest.mark.parametrize(
+    "path",
+    ["/api/v1/me/profile/picture", "/api/v1/routines/123/picture", "/api/v1/leagues/123/picture"],
+)
 async def test_multipart_entire_body_is_bounded_even_without_content_length(settings, path):
     app = create_app(settings)
 

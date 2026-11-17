@@ -13,6 +13,7 @@ from app.features.leagues.errors import (
     LeagueForbidden,
     LeagueNotFound,
 )
+from app.features.leagues.pictures_router import router as pictures_router
 from app.features.leagues.schemas import (
     InvitationCreated,
     InvitationPreview,
@@ -25,6 +26,7 @@ from app.features.leagues.schemas import (
 
 router = APIRouter(prefix="/leagues", tags=["leagues"])
 LeagueId = Annotated[int, Path(gt=0, le=2**63 - 1)]
+router.include_router(pictures_router)
 
 
 @router.get("")

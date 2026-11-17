@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.leagues.errors import LeagueNotFound
 from app.features.leagues.models import league_member
+from app.features.leagues.presentation import member_picture_urls
 from app.features.leagues.result_models import league_result
 from app.features.leagues.scoring_models import league_scoring_round
 from app.features.leagues.standings import lock_league, materialize_rounds, round_standings
@@ -94,6 +95,12 @@ async def pending_results(session: AsyncSession, user_id: int, league_id: int, n
                 for item in (await session.execute(query)).mappings()
             ]
         )
+        pictures = await member_picture_urls(session, league_id)
+        for item in result:
+            item["standings"] = [
+                {**member, "picture_url": pictures.get(member["user_id"])}
+                for member in item["standings"]
+            ]
         await session.commit()
         return result
     except Exception:

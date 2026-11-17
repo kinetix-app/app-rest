@@ -345,7 +345,8 @@ CREATE TABLE league (
     name TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     created_by BIGINT NOT NULL REFERENCES users(id),
-    timezone VARCHAR(100)
+    timezone VARCHAR(100),
+    picture_blob_name TEXT
 );
 
 -- Versioned rounds and stable results leave legacy DATE rounds untouched.

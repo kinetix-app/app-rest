@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.features.accounts.models import Profile
 from app.features.leagues.errors import LeagueNotFound
 from app.features.leagues.models import league, league_member
+from app.features.leagues.presentation import member_picture_urls
 from app.features.leagues.scoring import ensure_round
 from app.features.leagues.scoring_models import league_daily_score, league_scoring_round
 
@@ -164,11 +165,18 @@ async def get_standings(session: AsyncSession, user_id: int, league_id: int):
             for member in detail["standings"]:
                 uid = member["user_id"]
                 totals[uid] = totals.get(uid, 0) + int(member["score"])
+        pictures = await member_picture_urls(session, league_id)
+        for detail in details:
+            for member in detail["standings"]:
+                member["picture_url"] = pictures.get(member["user_id"])
+        general = rank_totals(members, totals)
+        for member in general:
+            member["picture_url"] = pictures.get(member["user_id"])
         result = {
             "timezone": row["timezone"],
             "current_round_id": current["id"],
             "rounds": details,
-            "general": rank_totals(members, totals),
+            "general": general,
         }
         await session.commit()
         return result

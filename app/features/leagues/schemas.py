@@ -35,6 +35,7 @@ class LeagueSummary(BaseModel):
     name: str
     timezone: str | None
     role: Role | None
+    picture_url: str | None = None
 
 
 class LeagueCreated(LeagueSummary):
@@ -46,6 +47,7 @@ class LeagueMember(BaseModel):
     display_name: str | None
     role: Role | None
     joined_at: datetime | None
+    picture_url: str | None = None
 
 
 class LeagueDetail(LeagueCreated):

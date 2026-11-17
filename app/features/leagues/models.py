@@ -13,6 +13,7 @@ league = sa.Table(
     sa.Column("id", sa.BigInteger(), primary_key=True),
     sa.Column("name", sa.Text(), nullable=False),
     sa.Column("timezone", sa.String(100), nullable=True),
+    sa.Column("picture_blob_name", sa.Text(), nullable=True),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
