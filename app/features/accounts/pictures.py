@@ -28,8 +28,8 @@ PICTURE_TYPES = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
 _STORAGE_ERRORS = (AzureError, TimeoutError, OSError, ValueError)
 
 
-def normalize_picture(data: bytes, content_type: str | None) -> bytes:
-    """Decode at most 16MP, orient, resize to 1024px and discard all metadata."""
+def normalize_picture(data: bytes, content_type: str | None, max_side: int = 1024) -> bytes:
+    """Decode at most 16MP, orient, resize to `max_side` px and discard all metadata."""
     if len(data) > MAX_PICTURE_BYTES:
         raise PictureTooLarge
     if content_type not in PICTURE_TYPES:
@@ -44,7 +44,7 @@ def normalize_picture(data: bytes, content_type: str | None) -> bytes:
                     raise InvalidPicture
                 source.load()
                 oriented = ImageOps.exif_transpose(source)
-                oriented.thumbnail((1024, 1024))
+                oriented.thumbnail((max_side, max_side))
                 # Composite transparency onto white rather than unexpected black backgrounds.
                 rgba = oriented.convert("RGBA")
                 clean = Image.new("RGB", rgba.size, "white")

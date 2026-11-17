@@ -14,6 +14,7 @@ from app.features.goals import models as goal_models  # noqa: F401
 from app.features.leagues import models as league_models  # noqa: F401
 from app.features.nutrition import models as nutrition_models  # noqa: F401
 from app.features.posts import models as post_models  # noqa: F401
+from app.features.social import models as social_models  # noqa: F401
 from app.features.training import models as training_models  # noqa: F401
 
 # Import implemented feature models here so autogenerate sees their tables.

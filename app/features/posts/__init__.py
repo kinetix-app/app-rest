@@ -1,1 +1,1 @@
-"""Post persistence; social APIs are separate feature work."""
+"""Workout posts: public feed, image media, likes and comments."""
