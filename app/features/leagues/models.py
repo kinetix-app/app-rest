@@ -12,6 +12,7 @@ league = sa.Table(
     Base.metadata,
     sa.Column("id", sa.BigInteger(), primary_key=True),
     sa.Column("name", sa.Text(), nullable=False),
+    sa.Column("timezone", sa.String(100), nullable=True),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
@@ -24,6 +25,8 @@ league_member = sa.Table(
     sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_REFERENCE), primary_key=True),
     sa.Column("league_id", sa.BigInteger(), sa.ForeignKey(LEAGUE_ID_REFERENCE), primary_key=True),
     sa.Column("joined_date", sa.Date(), nullable=False, server_default=sa.text("CURRENT_DATE")),
+    sa.Column("joined_at", sa.DateTime(timezone=True), nullable=True),
+    sa.Column("role", sa.String(16), nullable=True, comment="Values: admin, member"),
 )
 
 league_round = sa.Table(
@@ -45,4 +48,12 @@ league_score = sa.Table(
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
+)
+
+league_invitation = sa.Table(
+    "league_invitation",
+    Base.metadata,
+    sa.Column("token_hash", sa.String(64), primary_key=True),
+    sa.Column("league_id", sa.BigInteger(), sa.ForeignKey(LEAGUE_ID_REFERENCE), nullable=False),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
 )
