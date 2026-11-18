@@ -6,12 +6,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
 from app.features.nutrition.errors import (
-    FoodInUseError,
     FoodNotFoundError,
     MealItemNotFoundError,
     NutritionGoalExistsError,
     NutritionGoalNotFoundError,
-    RecipeInUseError,
     RecipeNotFoundError,
 )
 from app.features.nutrition.schemas import (
@@ -19,12 +17,14 @@ from app.features.nutrition.schemas import (
     FoodPatch,
     FoodResponse,
     MealItemCreate,
+    MealItemPatch,
     MealItemResponse,
     NutritionDayResponse,
     NutritionGoalInput,
     NutritionGoalResponse,
     RecipeCreate,
     RecipeMealItemCreate,
+    RecipePatch,
     RecipeResponse,
 )
 from app.features.nutrition.service import (
@@ -42,7 +42,9 @@ from app.features.nutrition.service import (
     get_recipes,
     search_foods,
     update_food,
+    update_meal_item,
     update_nutrition_goal,
+    update_recipe,
 )
 
 router = APIRouter(prefix="/foods", tags=["nutrition"])
@@ -116,8 +118,12 @@ async def post_recipe(
 
 
 @recipe_router.get("")
-async def read_recipes(user: CurrentUser, session: DatabaseSession) -> list[RecipeResponse]:
-    return await get_recipes(session, user.id)
+async def read_recipes(
+    user: CurrentUser,
+    session: DatabaseSession,
+    name: Annotated[str | None, Query(min_length=1, max_length=150)] = None,
+) -> list[RecipeResponse]:
+    return await get_recipes(session, user.id, name=name)
 
 
 @recipe_router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -128,10 +134,26 @@ async def remove_recipe(recipe_id: int, user: CurrentUser, session: DatabaseSess
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
         ) from exc
-    except RecipeInUseError as exc:
+
+
+@recipe_router.patch("/{recipe_id}")
+async def patch_recipe(
+    recipe_id: int,
+    data: RecipePatch,
+    user: CurrentUser,
+    session: DatabaseSession,
+) -> RecipeResponse:
+    try:
+        return await update_recipe(session, user.id, recipe_id, data)
+    except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A recipe already logged in the diary cannot be deleted",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except FoodNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FOOD_NOT_FOUND) from exc
+    except RecipeNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
         ) from exc
 
 
@@ -152,6 +174,22 @@ async def post_meal_item(
 async def remove_meal_item(meal_item_id: int, user: CurrentUser, session: DatabaseSession) -> None:
     try:
         await delete_meal_item(session, user.id, meal_item_id)
+    except MealItemNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Meal item not found"
+        ) from exc
+
+
+@meal_router.patch("/meal-items/{meal_item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def patch_meal_item(
+    meal_item_id: int, data: MealItemPatch, user: CurrentUser, session: DatabaseSession
+) -> None:
+    try:
+        await update_meal_item(session, user.id, meal_item_id, data)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     except MealItemNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Meal item not found"
@@ -200,11 +238,6 @@ async def remove_food(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=FOOD_NOT_FOUND,
-        ) from exc
-    except FoodInUseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A food used in a recipe or diary cannot be deleted",
         ) from exc
 
 

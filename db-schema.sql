@@ -79,7 +79,9 @@ CREATE TABLE food (
     protein DECIMAL(8,2) NOT NULL,
     carbohydrates DECIMAL(8,2) NOT NULL,
     fats DECIMAL(8,2) NOT NULL,
-    barcode VARCHAR(50)
+    barcode VARCHAR(50),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    catalog_key VARCHAR(100) UNIQUE
 );
 
 -- Recipes with their declared serving count.
@@ -89,7 +91,8 @@ CREATE TABLE recipe (
     name VARCHAR(150) NOT NULL,
     description TEXT,
     instructions TEXT,
-    servings INTEGER NOT NULL DEFAULT 1
+    servings INTEGER NOT NULL DEFAULT 1,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- Recipe ingredients and their quantities in grams.

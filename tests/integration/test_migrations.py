@@ -1,5 +1,6 @@
 """Verify real migration DDL and populated upgrades in isolated test-owned schemas."""
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
+
+from app.features.nutrition.models import food, recipe, recipe_ingredient
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,6 +91,25 @@ async def test_clean_migration_matches_sql_draft_and_downgrades(integration_url)
                 expected = await connection.run_sync(lambda conn: schema_signature(conn, draft))
                 assert len(actual) == 29
                 assert actual == expected
+                base_foods = json.loads(
+                    (ROOT / "app" / "features" / "nutrition" / "base_foods.json").read_text()
+                )
+                seeded = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT catalog_key, user_id, is_active FROM food "
+                                "ORDER BY catalog_key"
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                assert [row["catalog_key"] for row in seeded] == sorted(
+                    item["catalog_key"] for item in base_foods
+                )
+                assert all(row["user_id"] is None and row["is_active"] for row in seeded)
                 # Empty-account upgrades must leave sequences ready to generate ID 1.
                 assert (
                     await connection.scalar(text("INSERT INTO users DEFAULT VALUES RETURNING id"))
@@ -96,6 +118,72 @@ async def test_clean_migration_matches_sql_draft_and_downgrades(integration_url)
                 await connection.run_sync(lambda conn: migrate(conn, "base", downgrade=True))
                 assert (
                     await connection.run_sync(lambda conn: schema_signature(conn, migrated)) == {}
+                )
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_catalogue_cleanup_removes_unused_legacy_shared_foods(integration_url):
+    engine = create_async_engine(integration_url)
+    schema = "migration_" + uuid4().hex
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(lambda conn: migrate(conn, "20261116_02"))
+                unused_id = await connection.scalar(
+                    food.insert()
+                    .values(
+                        user_id=None,
+                        name="Legacy Spanish food",
+                        calories=100,
+                        protein=10,
+                        carbohydrates=10,
+                        fats=1,
+                        is_active=True,
+                    )
+                    .returning(food.c.id)
+                )
+                used_id = await connection.scalar(
+                    food.insert()
+                    .values(
+                        user_id=None,
+                        name="Legacy referenced food",
+                        calories=100,
+                        protein=10,
+                        carbohydrates=10,
+                        fats=1,
+                        is_active=True,
+                    )
+                    .returning(food.c.id)
+                )
+                recipe_id = await connection.scalar(
+                    recipe.insert()
+                    .values(user_id=None, name="Legacy recipe", servings=1)
+                    .returning(recipe.c.id)
+                )
+                await connection.execute(
+                    recipe_ingredient.insert().values(
+                        recipe_id=recipe_id, food_id=used_id, quantity_grams=100
+                    )
+                )
+                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                assert (
+                    await connection.scalar(
+                        text("SELECT id FROM food WHERE id = :id"), {"id": unused_id}
+                    )
+                    is None
+                )
+                assert (
+                    await connection.scalar(
+                        text("SELECT is_active FROM food WHERE id = :id"), {"id": used_id}
+                    )
+                    is False
                 )
             finally:
                 await transaction.rollback()
