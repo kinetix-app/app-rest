@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Path, Request
 from pydantic import BaseModel, ValidationError
 from python_multipart.exceptions import MultipartParseError
 from starlette.datastructures import UploadFile
-from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.core.auth.dependencies import CurrentUser
 from app.db.session import DatabaseSession
@@ -82,9 +82,11 @@ async def _configuration[T: BaseModel](
     if media_type != "multipart/form-data":
         raise HTTPException(415, "Use multipart/form-data")
     try:
-        form = await request.form(max_files=1, max_fields=1, max_part_size=16 * 1024)
-    except StarletteHTTPException as error:
-        if "Part exceeded maximum size" in str(error.detail):
+        form = await MultiPartParser(
+            request.headers, request.stream(), max_files=1, max_fields=1, max_part_size=16 * 1024
+        ).parse()
+    except MultiPartException as error:
+        if "Part exceeded maximum size" in error.message:
             raise HTTPException(413, "League configuration exceeds 16 KiB limit") from None
         raise HTTPException(422, "Invalid multipart league configuration") from None
     except MultipartParseError:

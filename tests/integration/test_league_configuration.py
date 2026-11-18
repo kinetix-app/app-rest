@@ -43,7 +43,14 @@ async def test_timezones_and_configuration_without_picture(league_api):  # noqa:
     assert (
         await client.post(create_path, auth=alice, files=parts(data | {"timezone": "invalid"}))
     ).status_code == 422
-    created = await client.post(create_path, auth=alice, files=parts(data))
+    # The JSON field is bounded independently of the larger picture request limit.
+    content_at_limit = json.dumps(data).ljust(16 * 1024)
+    oversized = await client.post(
+        create_path, auth=alice, files={"data": (None, content_at_limit + " ")}
+    )
+    assert oversized.status_code == 413
+    assert oversized.json() == {"detail": "League configuration exceeds 16 KiB limit"}
+    created = await client.post(create_path, auth=alice, files={"data": (None, content_at_limit)})
     assert created.status_code == 201, created.text
     item = created.json()
     assert item["picture_url"] is None
