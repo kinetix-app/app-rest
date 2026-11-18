@@ -399,10 +399,10 @@ CREATE TABLE league_invitation (
 CREATE TABLE league_score (
     league_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
-    local_day DATE NOT NULL,
     round_id BIGINT NOT NULL,
-    session_id BIGINT NOT NULL,
     score NUMERIC(40,0) NOT NULL,
+    local_day DATE NOT NULL,
+    session_id BIGINT NOT NULL,
     volume_kg_reps NUMERIC(40,6) NOT NULL,
     duration_us BIGINT NOT NULL,
     body_weight_kg NUMERIC(10,6) NOT NULL,
