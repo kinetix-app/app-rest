@@ -82,7 +82,8 @@ async def test_configuration_fields_rollback_with_logo_and_removal(picture_api, 
     updated = await client.post(path, auth=alice, files=parts(config, "blue"))
     assert updated.status_code == 200, updated.text
     previous = updated.json()
-    assert previous["name"] == config["name"] and previous["description"] == config["description"]
+    assert previous["name"] == config["name"]
+    assert previous["description"] == config["description"]
     assert previous["picture_url"]
     assert (await client.get(previous["picture_url"], auth=bob)).status_code == 200
     assert (await client.get(previous["picture_url"], auth=eve)).status_code == 404
@@ -123,12 +124,12 @@ async def test_configuration_fields_rollback_with_logo_and_removal(picture_api, 
             """)
         )
     broken = {"name": "Reject in database", "description": None}
+    broken_edit_parts = parts(broken, "green")
+    broken_create_parts = parts(broken | {"timezone": "UTC"}, "green")
     with pytest.raises(DBAPIError, match="test configuration rollback"):
-        await client.post(path, auth=alice, files=parts(broken, "green"))
+        await client.post(path, auth=alice, files=broken_edit_parts)
     with pytest.raises(DBAPIError, match="test configuration rollback"):
-        await client.post(
-            create_path, auth=alice, files=parts(broken | {"timezone": "UTC"}, "green")
-        )
+        await client.post(create_path, auth=alice, files=broken_create_parts)
     assert (await client.get(item_path, auth=alice)).json() == previous
     assert {blob.name async for blob in container.list_blobs()} == blobs_before
     listed = (await client.get(LEAGUES, auth=alice)).json()

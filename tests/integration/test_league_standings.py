@@ -98,7 +98,8 @@ async def test_standings_private_totals_ranking_and_source_details(league_api): 
     response = await client.get(f"/api/v1/leagues/{lid}/standings", auth=alice)
     assert response.status_code == 200, response.text
     data = response.json()
-    assert len(data["rounds"]) == 2 and data["rounds"][0]["id"] == data["current_round_id"]
+    assert len(data["rounds"]) == 2
+    assert data["rounds"][0]["id"] == data["current_round_id"]
     assert [(x["user_id"], x["score"], x["position"]) for x in data["general"]] == [
         (a, "17", 1),
         (b, "10", 2),

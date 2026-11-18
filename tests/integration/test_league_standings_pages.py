@@ -113,8 +113,10 @@ async def test_ranked_pages_and_member_history_keep_round_and_privacy(league_api
     assert history_res.status_code == 200, history_res.text
     latest = history_res.json()
     item = latest["items"][0]
-    assert item["score"] == "7" and item["round_id"] == catalog["current_round_id"]
-    assert item["session_id"] > 0 and item["ended_at"]
+    assert item["score"] == "7"
+    assert item["round_id"] == catalog["current_round_id"]
+    assert item["session_id"] > 0
+    assert item["ended_at"]
     assert "calculation" not in item
     assert latest["next_before"] == item["local_day"]
     older = (
@@ -178,7 +180,8 @@ async def test_contributions_reuse_round_and_hide_peer_calculation(league_api): 
     assert current_first["next_offset"] == 1
     alice_score = current_first["items"][0]
     assert (alice_score["user_id"], alice_score["score"]) == (a, "7")
-    assert alice_score["session_id"] > 0 and alice_score["ended_at"]
+    assert alice_score["session_id"] > 0
+    assert alice_score["ended_at"]
     assert "calculation" not in alice_score
     current_second = (
         await client.get(

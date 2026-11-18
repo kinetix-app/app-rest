@@ -191,8 +191,9 @@ async def test_populated_league_scoring_upgrade_and_downgrade(integration_url):
                            to_regclass('league_session_calculation')
                 """) == [(None, None, None)]
 
-                with pytest.raises(IntegrityError):
-                    async with conn.begin_nested():
+                savepoint = await conn.begin_nested()
+                try:
+                    with pytest.raises(IntegrityError):
                         await execute(
                             f"INSERT INTO league_score ({score_fields}) "
                             "SELECT league_id, :peer, local_day, round_id, session_id, score,"
@@ -200,6 +201,8 @@ async def test_populated_league_scoring_upgrade_and_downgrade(integration_url):
                             "formula_version FROM league_score",
                             peer=peer,
                         )
+                finally:
+                    await savepoint.rollback()
 
                 next_round = (
                     await execute(

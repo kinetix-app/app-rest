@@ -108,7 +108,16 @@ async def _configuration[T: BaseModel](
         await form.close()
 
 
-@router.post("/configuration", status_code=201, openapi_extra=_MULTIPART_BODY)
+@router.post(
+    "/configuration",
+    status_code=201,
+    openapi_extra=_MULTIPART_BODY,
+    responses={
+        413: {"description": "Configuration or picture too large"},
+        415: {"description": "Unsupported media type"},
+        422: {"description": "Invalid configuration"},
+    },
+)
 async def create_configuration(
     user: CurrentUser, session: DatabaseSession, request: Request
 ) -> LeagueCreated:
@@ -128,7 +137,15 @@ async def create_configuration(
             raise picture_http_error(error) from None
 
 
-@router.post("/{league_id}/configuration", openapi_extra=_MULTIPART_BODY)
+@router.post(
+    "/{league_id}/configuration",
+    openapi_extra=_MULTIPART_BODY,
+    responses={
+        413: {"description": "Configuration or picture too large"},
+        415: {"description": "Unsupported media type"},
+        422: {"description": "Invalid configuration"},
+    },
+)
 async def edit_configuration(
     league_id: LeagueId, user: CurrentUser, session: DatabaseSession, request: Request
 ) -> LeagueDetail:

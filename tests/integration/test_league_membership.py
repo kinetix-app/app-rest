@@ -61,9 +61,9 @@ async def league_api(integration_url):
                     {"id": old_id},
                 )
             ).one()
-            assert (
-                str(row.joined_date) == "2020-01-02" and row.joined_at is None and row.role is None
-            )
+            assert str(row.joined_date) == "2020-01-02"
+            assert row.joined_at is None
+            assert row.role is None
             assert (
                 await conn.scalar(
                     sa.text("SELECT timezone FROM league WHERE id=:id"), {"id": old_id}
@@ -106,7 +106,8 @@ async def test_membership_invitation_permissions_and_persistence(league_api):
     )
     assert created.status_code == 201
     first = created.json()
-    assert first["name"] == "First" and first["role"] == "admin"
+    assert first["name"] == "First"
+    assert first["role"] == "admin"
     league_id = first["id"]
     assert (
         await client.post("/api/v1/leagues", json={"name": "Second", "timezone": "UTC"}, auth=alice)
@@ -149,7 +150,8 @@ async def test_membership_invitation_permissions_and_persistence(league_api):
     }
     assert (await client.get(preview_url)).status_code == 401
     joined = await client.post(f"/api/v1/league-invitations/{token}/accept", auth=bob)
-    assert joined.status_code == 200 and joined.json()["role"] == "member"
+    assert joined.status_code == 200
+    assert joined.json()["role"] == "member"
     member_preview = (await client.get(preview_url, auth=bob)).json()
     assert member_preview["member_count"] == 2
     assert member_preview["already_member"] is True

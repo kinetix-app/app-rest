@@ -60,11 +60,9 @@ async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
             .mappings()
             .one()
         )
-        assert (
-            snap.league_score == 10
-            and snap.league_volume_kg_reps == 800
-            and snap.league_body_weight_kg == 80
-        )
+        assert snap.league_score == 10
+        assert snap.league_volume_kg_reps == 800
+        assert snap.league_body_weight_kg == 80
         await session.execute(
             sa.update(Profile).where(Profile.user_id == user).values(weight_kg=40)
         )
@@ -82,7 +80,8 @@ async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
             .mappings()
             .one()
         )
-        assert snap.league_score == 10 and snap.league_body_weight_kg == 80
+        assert snap.league_score == 10
+        assert snap.league_body_weight_kg == 80
         assert await session.scalar(sa.select(sa.func.count()).select_from(league_score)) == 1
 
 
@@ -167,8 +166,10 @@ async def test_replacement_cutoffs_and_concurrency(league_api):  # noqa: F811
             .all()
         )
         assert len(winners) == 2
-        assert winners[0].session_id == tie and winners[0].score == Decimal(20)
-        assert winners[1].session_id == tomorrow and winners[1].score == Decimal(5)
+        assert winners[0].session_id == tie
+        assert winners[0].score == Decimal(20)
+        assert winners[1].session_id == tomorrow
+        assert winners[1].score == Decimal(5)
         assert (
             await session.scalar(
                 sa.select(training_session.c.league_score).where(training_session.c.id == before)

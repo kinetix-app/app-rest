@@ -26,7 +26,14 @@ from app.features.leagues.standings_schemas import (
     StandingsPageQuery,
 )
 
-router = APIRouter(prefix="/leagues", tags=["leagues"])
+router = APIRouter(
+    prefix="/leagues",
+    tags=["leagues"],
+    responses={
+        404: {"description": "League, round or member not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 PageSize = Annotated[int, Query(ge=1, le=50)]
 
 
@@ -41,19 +48,37 @@ async def _league_read[T](result: Awaitable[T]) -> T:
         raise HTTPException(409, "Legacy league requires explicit calendar migration") from None
 
 
-@router.get("/{league_id}/standings")
+@router.get(
+    "/{league_id}/standings",
+    responses={
+        404: {"description": "League not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 async def standings(league_id: LeagueId, user: CurrentUser, session: DatabaseSession):
     return await _league_read(get_standings(session, user.id, league_id))
 
 
-@router.get("/{league_id}/standings/rounds")
+@router.get(
+    "/{league_id}/standings/rounds",
+    responses={
+        404: {"description": "League not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 async def standings_rounds(
     league_id: LeagueId, user: CurrentUser, session: DatabaseSession
 ) -> RoundCatalog:
     return await _league_read(get_round_catalog(session, user.id, league_id))
 
 
-@router.get("/{league_id}/standings/page")
+@router.get(
+    "/{league_id}/standings/page",
+    responses={
+        404: {"description": "League or round not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 async def standings_page(
     league_id: LeagueId,
     user: CurrentUser,
@@ -65,7 +90,14 @@ async def standings_page(
     )
 
 
-@router.get("/{league_id}/standings/contributions", response_model_exclude_unset=True)
+@router.get(
+    "/{league_id}/standings/contributions",
+    response_model_exclude_unset=True,
+    responses={
+        404: {"description": "League, round or member not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 async def standings_contributions(
     league_id: LeagueId,
     user: CurrentUser,
@@ -79,7 +111,14 @@ async def standings_contributions(
     )
 
 
-@router.get("/{league_id}/members/{member_id}/score-history", response_model_exclude_unset=True)
+@router.get(
+    "/{league_id}/members/{member_id}/score-history",
+    response_model_exclude_unset=True,
+    responses={
+        404: {"description": "League, round or member not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 async def member_score_history(
     league_id: LeagueId,
     member_id: LeagueId,

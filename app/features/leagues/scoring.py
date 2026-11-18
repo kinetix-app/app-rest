@@ -126,19 +126,19 @@ async def credit_completed_session(
         if not (start <= submitted_at < end and source.ended_at < end):
             continue
         round_row = await ensure_round(session, league_row, source.started_at)
-        values = dict(
-            league_id=league_row.id,
-            user_id=user_id,
-            local_day=local_day(source.started_at, league_row.timezone),
-            round_id=round_row.id,
-            session_id=session_id,
-            score=score,
-            volume_kg_reps=volume,
-            duration_us=duration,
-            body_weight_kg=weight,
-            ended_at=source.ended_at,
-            formula_version=FORMULA_VERSION,
-        )
+        values = {
+            "league_id": league_row.id,
+            "user_id": user_id,
+            "local_day": local_day(source.started_at, league_row.timezone),
+            "round_id": round_row.id,
+            "session_id": session_id,
+            "score": score,
+            "volume_kg_reps": volume,
+            "duration_us": duration,
+            "body_weight_kg": weight,
+            "ended_at": source.ended_at,
+            "formula_version": FORMULA_VERSION,
+        }
         statement = insert(league_score).values(**values)
         excluded = statement.excluded
         await session.execute(

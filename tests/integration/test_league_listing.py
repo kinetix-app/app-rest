@@ -76,7 +76,8 @@ async def test_batched_card_rank_counts_match_current_standings(league_api, monk
         sa.event.remove(engine, "before_cursor_execute", record_query)
     assert len(queries) == 2
     cards = {item.id: item for item in listed}
-    assert set(cards) == {first, second, empty} and private not in cards
+    assert set(cards) == {first, second, empty}
+    assert private not in cards
     assert (cards[first].member_count, cards[first].current_week_position) == (3, 2)
     assert (cards[second].member_count, cards[second].current_week_position) == (2, 2)
     assert (cards[empty].member_count, cards[empty].current_week_position) == (1, 1)
@@ -174,4 +175,5 @@ async def test_legacy_calendar_or_unknown_incorporation_has_no_rank_but_counts_m
         cards = {item.id: item for item in await list_leagues(session, a, now=now)}
     assert cards[legacy].member_count == cards[unknown].member_count == 2
     assert cards[legacy].current_week_position is cards[unknown].current_week_position is None
-    assert cards[valid].member_count == 3 and cards[valid].current_week_position == 1
+    assert cards[valid].member_count == 3
+    assert cards[valid].current_week_position == 1

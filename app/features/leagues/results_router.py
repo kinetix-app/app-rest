@@ -12,7 +12,13 @@ from app.features.leagues.standings import LegacyLeagueUnavailable
 router = APIRouter(prefix="/leagues", tags=["leagues"])
 
 
-@router.get("/{league_id}/results/pending")
+@router.get(
+    "/{league_id}/results/pending",
+    responses={
+        404: {"description": "League not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 async def pending(league_id: LeagueId, user: CurrentUser, session: DatabaseSession):
     try:
         return await pending_results(session, user.id, league_id)
@@ -22,7 +28,14 @@ async def pending(league_id: LeagueId, user: CurrentUser, session: DatabaseSessi
         raise HTTPException(409, "Legacy league requires explicit calendar migration") from None
 
 
-@router.post("/{league_id}/results/{result_id}/acknowledge", status_code=204)
+@router.post(
+    "/{league_id}/results/{result_id}/acknowledge",
+    status_code=204,
+    responses={
+        404: {"description": "Result not found"},
+        409: {"description": "League calendar requires migration"},
+    },
+)
 async def acknowledge(
     league_id: LeagueId, result_id: LeagueId, user: CurrentUser, session: DatabaseSession
 ):

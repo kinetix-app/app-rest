@@ -60,7 +60,8 @@ async def picture_api(league_api):  # noqa: F811
     created = await client.post(
         "/api/v1/leagues", auth=alice, json={"name": "Private pictures", "timezone": "UTC"}
     )
-    assert created.status_code == 201 and created.json()["picture_url"] is None
+    assert created.status_code == 201
+    assert created.json()["picture_url"] is None
     lid = created.json()["id"]
     invitation = (await client.post(f"/api/v1/leagues/{lid}/invitations", auth=alice)).json()
     await client.post(f"/api/v1/league-invitations/{invitation['token']}/accept", auth=bob)
@@ -93,11 +94,13 @@ async def test_private_picture_permissions_replacement_failure_and_removal(
     first = await upload()
     assert first.status_code == 200
     url = first.json()["picture_url"]
-    assert url.startswith(path + "?v=") and "picture_blob_name" not in first.json()
+    assert url.startswith(path + "?v=")
+    assert "picture_blob_name" not in first.json()
     assert (await client.get(f"/api/v1/leagues/{lid}", auth=bob)).json()["picture_url"] == url
     assert (await client.get("/api/v1/leagues", auth=bob)).json()[0]["picture_url"] == url
     original = await client.get(url, auth=bob)
-    assert original.status_code == 200 and original.headers["content-type"] == "image/jpeg"
+    assert original.status_code == 200
+    assert original.headers["content-type"] == "image/jpeg"
     assert original.headers["cache-control"] == "private, no-store"
     assert (await client.get(url, auth=eve)).status_code == 404
     invite = await client.post(f"/api/v1/leagues/{lid}/invitations", auth=alice)
@@ -173,9 +176,11 @@ async def test_member_avatars_are_current_private_and_not_historical_score_data(
     member = next(item for item in detail["members"] if item["user_id"] == b)
     path = member["picture_url"]
     assert path.startswith(f"/api/v1/leagues/{lid}/members/{b}/picture?v=")
-    assert "picture_blob_name" not in member and "weight_kg" not in member
+    assert "picture_blob_name" not in member
+    assert "weight_kg" not in member
     original = await client.get(path, auth=alice)
-    assert original.status_code == 200 and original.headers["cache-control"] == "private, no-store"
+    assert original.status_code == 200
+    assert original.headers["cache-control"] == "private, no-store"
     assert (await client.get(path)).status_code == 401
     assert (await client.get(path, auth=eve)).status_code == 404
     assert (
@@ -200,10 +205,9 @@ async def test_member_avatars_are_current_private_and_not_historical_score_data(
         )
     pending_path = f"/api/v1/leagues/{lid}/results/pending"
     pending = (await client.get(pending_path, auth=alice)).json()
+    assert pending
     assert (
-        pending
-        and next(row for row in pending[0]["standings"] if row["user_id"] == b)["picture_url"]
-        == path
+        next(row for row in pending[0]["standings"] if row["user_id"] == b)["picture_url"] == path
     )
     async with sessions() as session:
         saved = await session.scalar(
@@ -217,7 +221,8 @@ async def test_member_avatars_are_current_private_and_not_historical_score_data(
     ).status_code == 200
     refreshed = (await client.get(pending_path, auth=alice)).json()
     row = next(row for row in refreshed[0]["standings"] if row["user_id"] == b)
-    assert row["picture_url"] != path and row["score"] == "0"
+    assert row["picture_url"] != path
+    assert row["score"] == "0"
     assert (await client.get(row["picture_url"], auth=alice)).content != original.content
     assert (await client.delete(profile_path, auth=bob)).status_code == 200
     assert (await client.get(path, auth=alice)).status_code == 404
@@ -280,7 +285,9 @@ async def test_picture_migration_preserves_league_membership_and_downgrade(integ
                     {"lid": lid},
                 )
             ).one()
-            assert row.name == "kept" and row.timezone == "UTC" and row.picture_blob_name is None
+            assert row.name == "kept"
+            assert row.timezone == "UTC"
+            assert row.picture_blob_name is None
             await conn.run_sync(lambda connection: migrate(connection, "20261117_03", down=True))
             assert (
                 await conn.execute(

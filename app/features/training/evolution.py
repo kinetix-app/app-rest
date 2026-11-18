@@ -23,6 +23,50 @@ def _display(value: Decimal | None, divisor: Decimal, quantum: str) -> Decimal |
     )
 
 
+def _estimate_1rm(weight: Decimal, count: int) -> Decimal | None:
+    if count > 10:
+        return None
+    return weight if count == 1 else weight * (1 + Decimal(count) / 30)
+
+
+def _gym_metrics(
+    sets: list[Any],
+) -> tuple[list[Decimal], list[int], list[Decimal], list[Decimal], bool]:
+    weights: list[Decimal] = []
+    reps: list[int] = []
+    estimates: list[Decimal] = []
+    volumes: list[Decimal] = []
+    partial = False
+    for row in sets:
+        weight, count = row["weight_kg"], row["reps"]
+        valid_weight = weight is not None and weight.is_finite() and weight > 0
+        valid_reps = count is not None and count > 0
+        if valid_weight:
+            weights.append(weight)
+        if valid_reps:
+            reps.append(count)
+        if valid_weight and valid_reps:
+            volumes.append(weight * count)
+            estimate = _estimate_1rm(weight, count)
+            if estimate is not None:
+                estimates.append(estimate)
+        else:
+            partial = True
+    return weights, reps, estimates, volumes, partial
+
+
+def _cardio_metrics(sets: list[Any]) -> tuple[list[Decimal], list[int]]:
+    distances: list[Decimal] = []
+    durations: list[int] = []
+    for row in sets:
+        distance, duration = row["distance_km"], row["duration_seconds"]
+        if distance is not None and distance.is_finite() and distance > 0:
+            distances.append(distance)
+        if duration is not None and duration >= 0:
+            durations.append(duration)
+    return distances, durations
+
+
 def aggregate(
     rows: list[Any], activity_type: str, weight_unit: WeightUnit, distance_unit: DistanceUnit
 ) -> list[EvolutionDay]:
@@ -31,36 +75,10 @@ def aggregate(
         days[row["ended_at"].astimezone(UTC).date()].append(row)
     result = []
     for day, sets in sorted(days.items()):
-        weights: list[Decimal] = []
-        reps: list[int] = []
-        estimates: list[Decimal] = []
-        volumes: list[Decimal] = []
-        distances: list[Decimal] = []
-        durations: list[int] = []
-        partial = False
-        for row in sets:
-            weight, count = row["weight_kg"], row["reps"]
-            if activity_type == "gym":
-                valid_weight = weight is not None and weight.is_finite() and weight > 0
-                valid_reps = count is not None and count > 0
-                if valid_weight:
-                    weights.append(weight)
-                if valid_reps:
-                    reps.append(count)
-                if valid_weight and valid_reps:
-                    volumes.append(weight * count)
-                    if count <= 10:
-                        estimates.append(
-                            weight if count == 1 else weight * (1 + Decimal(count) / 30)
-                        )
-                else:
-                    partial = True
-            else:
-                distance, duration = row["distance_km"], row["duration_seconds"]
-                if distance is not None and distance.is_finite() and distance > 0:
-                    distances.append(distance)
-                if duration is not None and duration >= 0:
-                    durations.append(duration)
+        weights, reps, estimates, volumes, partial = (
+            _gym_metrics(sets) if activity_type == "gym" else ([], [], [], [], False)
+        )
+        distances, durations = _cardio_metrics(sets) if activity_type != "gym" else ([], [])
         divisor = KG_PER_LB if weight_unit == "lb" else Decimal(1)
         result.append(
             EvolutionDay(

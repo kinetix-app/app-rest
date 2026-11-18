@@ -291,6 +291,21 @@ async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> None:
         raise RecipeNotFoundError
 
 
+def _recipe_ingredient_values(recipe_id: int, ingredients):
+    return [
+        {
+            "recipe_id": recipe_id,
+            "food_id": ingredient.food_id
+            if hasattr(ingredient, "food_id")
+            else ingredient["food_id"],
+            "quantity_grams": ingredient.quantity_grams
+            if hasattr(ingredient, "quantity_grams")
+            else ingredient["quantity_grams"],
+        }
+        for ingredient in ingredients
+    ]
+
+
 async def update_recipe(db: AsyncSession, user_id: int, recipe_id: int, data: RecipePatch):
     changes = data.model_dump(exclude_unset=True)
     if any(value is None for value in changes.values()):
@@ -378,18 +393,7 @@ async def update_recipe(db: AsyncSession, user_id: int, recipe_id: int, data: Re
         if is_used is not None or "ingredients" in changes:
             await db.execute(
                 insert(recipe_ingredient),
-                [
-                    {
-                        "recipe_id": new_recipe_id,
-                        "food_id": ingredient.food_id
-                        if hasattr(ingredient, "food_id")
-                        else ingredient["food_id"],
-                        "quantity_grams": ingredient.quantity_grams
-                        if hasattr(ingredient, "quantity_grams")
-                        else ingredient["quantity_grams"],
-                    }
-                    for ingredient in ingredients
-                ],
+                _recipe_ingredient_values(new_recipe_id, ingredients),
             )
         await db.commit()
     except Exception:
