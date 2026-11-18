@@ -34,6 +34,26 @@ class WorkoutSummary(BaseModel):
     exercises: list[str]
 
 
+class WorkoutSet(BaseModel):
+    set_number: int
+    reps: int | None
+    weight_kg: Decimal | None
+    duration_seconds: int | None
+    distance_km: Decimal | None
+
+
+class WorkoutExercise(BaseModel):
+    exercise_id: int
+    name: str
+    sets: list[WorkoutSet]
+
+
+class WorkoutDetail(WorkoutSummary):
+    """Everything the author recorded in the shared workout, in the order it was done."""
+
+    detailed_exercises: list[WorkoutExercise]
+
+
 class PostMedia(BaseModel):
     id: int
     type: FileType

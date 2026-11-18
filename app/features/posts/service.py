@@ -48,6 +48,9 @@ from app.features.posts.schemas import (
     PostMedia,
     PostPage,
     PostResponse,
+    WorkoutDetail,
+    WorkoutExercise,
+    WorkoutSet,
     WorkoutSummary,
 )
 from app.features.social.service import friend_ids_query
@@ -285,6 +288,57 @@ async def get_post(session: AsyncSession, user_id: int, post_id: int) -> PostRes
     if row is None:
         raise PostNotFound
     return (await _hydrate(session, user_id, [row]))[0]
+
+
+async def get_post_workout(session: AsyncSession, user_id: int, post_id: int) -> WorkoutDetail:
+    """Exercises and sets of the workout a visible post shares; 404 for free posts."""
+    session_id = await session.scalar(
+        _visible_posts(user_id)
+        .with_only_columns(post.c.training_session_id)
+        .where(post.c.id == post_id)
+    )
+    summary = (await _workouts(session, {session_id})).get(session_id) if session_id else None
+    if summary is None:
+        raise PostNotFound
+    exercises: dict[int, WorkoutExercise] = {}
+    rows = await session.execute(
+        sa.select(
+            session_exercise.c.id,
+            exercise.c.id.label("exercise_id"),
+            exercise.c.name,
+            exercise_set.c.set_number,
+            exercise_set.c.reps,
+            exercise_set.c.weight_kg,
+            exercise_set.c.duration_seconds,
+            exercise_set.c.distance_km,
+        )
+        .join(exercise, exercise.c.id == session_exercise.c.exercise_id)
+        .outerjoin(exercise_set, exercise_set.c.session_exercise_id == session_exercise.c.id)
+        .where(session_exercise.c.session_id == session_id)
+        .order_by(
+            session_exercise.c.exercise_order,
+            session_exercise.c.id,
+            exercise_set.c.set_number,
+            exercise_set.c.id,
+        )
+    )
+    for row in rows:
+        item = exercises.setdefault(
+            row.id, WorkoutExercise(exercise_id=row.exercise_id, name=row.name, sets=[])
+        )
+        if row.set_number is not None:
+            item.sets.append(
+                WorkoutSet(
+                    set_number=row.set_number,
+                    reps=row.reps,
+                    weight_kg=None
+                    if row.weight_kg is None
+                    else Decimal(row.weight_kg).quantize(VOLUME_PRECISION, rounding=ROUND_HALF_UP),
+                    duration_seconds=row.duration_seconds,
+                    distance_km=row.distance_km,
+                )
+            )
+    return WorkoutDetail(**summary.model_dump(), detailed_exercises=list(exercises.values()))
 
 
 async def _require_shareable(

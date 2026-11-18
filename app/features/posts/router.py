@@ -29,6 +29,7 @@ from app.features.posts.schemas import (
     LikeResponse,
     PostPage,
     PostResponse,
+    WorkoutDetail,
 )
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -114,6 +115,20 @@ async def get_post(
         return await service.get_post(session, user.id, post_id)
     except PostNotFound:
         raise HTTPException(404, POST_NOT_FOUND) from None
+
+
+@router.get(
+    "/{post_id}/workout",
+    responses={404: {"description": "Post not found or it does not share a workout"}},
+)
+async def get_post_workout(
+    post_id: ResourceId, user: CurrentUser, session: DatabaseSession
+) -> WorkoutDetail:
+    """Exercises and sets of the shared workout, visible to whoever can see the post."""
+    try:
+        return await service.get_post_workout(session, user.id, post_id)
+    except PostNotFound:
+        raise HTTPException(404, "Post not found or it does not share a workout") from None
 
 
 @router.delete(

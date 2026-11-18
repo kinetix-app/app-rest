@@ -247,6 +247,33 @@ async def test_share_workout_with_images_feed_and_media(posts_api):
     assert len(api.storage.blobs) == 2
 
 
+async def test_post_workout_details_follow_post_visibility(posts_api):
+    api = posts_api
+    public = await shared(api, api.alice)
+    response = await api.client.get(f"{POSTS}/{public['id']}/workout", auth=api.bob)
+    assert response.status_code == 200, response.text
+    detail = response.json()
+    assert detail["set_count"] == 3
+    assert detail["total_volume_kg"] == "1312.50"
+    assert [len(item["sets"]) for item in detail["detailed_exercises"]] == [2, 1]
+    first = detail["detailed_exercises"][0]
+    assert first["exercise_id"] == api.catalogue[0]
+    assert [(s["set_number"], s["reps"], s["weight_kg"]) for s in first["sets"]] == [
+        (1, 8, "100.00"),
+        (2, 5, "62.50"),
+    ]
+
+    private = await shared(api, api.alice, visibility="PRIVATE")
+    path = f"{POSTS}/{private['id']}/workout"
+    assert (await api.client.get(path, auth=api.bob)).status_code == 404
+    assert (await api.client.get(path, auth=api.alice)).status_code == 200
+
+    free = await api.client.post(POSTS, auth=api.alice, data={"text": "Rest day"})
+    assert free.status_code == 201, free.text
+    free_path = f"{POSTS}/{free.json()['id']}/workout"
+    assert (await api.client.get(free_path, auth=api.alice)).status_code == 404
+
+
 async def test_share_validation_leaves_no_posts_or_blobs(posts_api):
     api = posts_api
     session_id = await workout(api, api.alice)
