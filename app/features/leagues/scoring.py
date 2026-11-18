@@ -19,12 +19,7 @@ from app.features.leagues.calculation import (
     local_day,
     weekly_bounds,
 )
-from app.features.leagues.models import league, league_member
-from app.features.leagues.scoring_models import (
-    league_daily_score,
-    league_scoring_round,
-    league_session_calculation,
-)
+from app.features.leagues.models import league, league_member, league_round, league_score
 from app.features.training.models import exercise, exercise_set, session_exercise, training_session
 
 
@@ -32,16 +27,16 @@ async def ensure_round(session: AsyncSession, league_row, instant: datetime):
     """Find/create the source week; caller must hold the league row lock."""
     start, end = weekly_bounds(instant, league_row.timezone)
     await session.execute(
-        insert(league_scoring_round)
+        insert(league_round)
         .values(league_id=league_row.id, start_at=start, end_at=end)
         .on_conflict_do_nothing(index_elements=["league_id", "start_at"])
     )
     return (
         (
             await session.execute(
-                sa.select(league_scoring_round).where(
-                    league_scoring_round.c.league_id == league_row.id,
-                    league_scoring_round.c.start_at == start,
+                sa.select(league_round).where(
+                    league_round.c.league_id == league_row.id,
+                    league_round.c.start_at == start,
                 )
             )
         )
@@ -54,16 +49,6 @@ async def credit_completed_session(
     session: AsyncSession, user_id: int, session_id: int, now: datetime | None = None
 ) -> None:
     """Create one immutable snapshot and, while eligible, update daily winners."""
-    # Existing snapshots are immutable; retries must not reread profile data.
-    if (
-        await session.scalar(
-            sa.select(league_session_calculation.c.session_id).where(
-                league_session_calculation.c.session_id == session_id
-            )
-        )
-        is not None
-    ):
-        return
     source = (
         (
             await session.execute(
@@ -77,6 +62,9 @@ async def credit_completed_session(
         .mappings()
         .one()
     )
+    # Formula version, rather than score, marks processed ineligible sessions too.
+    if source.league_formula_version is not None:
+        return
     volume = await session.scalar(
         sa.select(sa.func.coalesce(sa.func.sum(exercise_set.c.reps * exercise_set.c.weight_kg), 0))
         .select_from(exercise_set.join(session_exercise).join(exercise))
@@ -96,21 +84,23 @@ async def credit_completed_session(
         if source.activity_type == "gym" and weight is not None
         else None
     )
-    inserted = await session.scalar(
-        insert(league_session_calculation)
-        .values(
-            session_id=session_id,
-            user_id=user_id,
-            score=score,
-            volume_kg_reps=volume,
-            duration_us=duration,
-            body_weight_kg=weight,
-            formula_version=FORMULA_VERSION,
+    updated = await session.scalar(
+        training_session.update()
+        .where(
+            training_session.c.id == session_id,
+            training_session.c.user_id == user_id,
+            training_session.c.league_formula_version.is_(None),
         )
-        .on_conflict_do_nothing(index_elements=["session_id"])
-        .returning(league_session_calculation.c.session_id)
+        .values(
+            league_score=score,
+            league_volume_kg_reps=volume,
+            league_duration_us=duration,
+            league_body_weight_kg=weight,
+            league_formula_version=FORMULA_VERSION,
+        )
+        .returning(training_session.c.id)
     )
-    if inserted is None or score is None:
+    if updated is None or score is None:
         return
     leagues = (
         (
@@ -149,7 +139,7 @@ async def credit_completed_session(
             ended_at=source.ended_at,
             formula_version=FORMULA_VERSION,
         )
-        statement = insert(league_daily_score).values(**values)
+        statement = insert(league_score).values(**values)
         excluded = statement.excluded
         await session.execute(
             statement.on_conflict_do_update(
@@ -160,14 +150,14 @@ async def credit_completed_session(
                     if key not in ("league_id", "user_id", "local_day")
                 },
                 where=sa.or_(
-                    excluded.score > league_daily_score.c.score,
+                    excluded.score > league_score.c.score,
                     sa.and_(
-                        excluded.score == league_daily_score.c.score,
+                        excluded.score == league_score.c.score,
                         sa.or_(
-                            excluded.ended_at < league_daily_score.c.ended_at,
+                            excluded.ended_at < league_score.c.ended_at,
                             sa.and_(
-                                excluded.ended_at == league_daily_score.c.ended_at,
-                                excluded.session_id < league_daily_score.c.session_id,
+                                excluded.ended_at == league_score.c.ended_at,
+                                excluded.session_id < league_score.c.session_id,
                             ),
                         ),
                     ),

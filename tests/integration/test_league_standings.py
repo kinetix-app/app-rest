@@ -7,9 +7,8 @@ import pytest
 import sqlalchemy as sa
 
 from app.features.leagues.calculation import weekly_bounds
-from app.features.leagues.models import league, league_member
+from app.features.leagues.models import league, league_member, league_score
 from app.features.leagues.scoring import ensure_round
-from app.features.leagues.scoring_models import league_daily_score, league_session_calculation
 from app.features.training.models import training_session
 from tests.integration.test_league_membership import league_api  # noqa: F401
 
@@ -26,22 +25,16 @@ async def seed_score(session, lid, user_id, moment, score):
             activity_type="gym",
             started_at=moment,
             ended_at=moment + timedelta(hours=1),
+            league_score=score,
+            league_volume_kg_reps=800,
+            league_duration_us=3600000000,
+            league_body_weight_kg=80,
+            league_formula_version="test-v1",
         )
         .returning(training_session.c.id)
     )
     await session.execute(
-        league_session_calculation.insert().values(
-            session_id=source,
-            user_id=user_id,
-            score=score,
-            volume_kg_reps=800,
-            duration_us=3600000000,
-            body_weight_kg=80,
-            formula_version="test-v1",
-        )
-    )
-    await session.execute(
-        league_daily_score.insert().values(
+        league_score.insert().values(
             league_id=lid,
             user_id=user_id,
             local_day=moment.date(),
@@ -128,7 +121,7 @@ async def test_standings_private_totals_ranking_and_source_details(league_api): 
     assert (await client.get(f"/api/v1/leagues/{other}/standings", auth=alice)).status_code == 404
 
 
-async def test_scoring_results_upgrade_preserves_legacy_round_and_score(integration_url):
+async def test_initial_scoring_upgrade_preserves_legacy_round_and_score(integration_url):
     from pathlib import Path
     from uuid import uuid4
 
@@ -175,7 +168,7 @@ async def test_scoring_results_upgrade_preserves_legacy_round_and_score(integrat
                 ),
                 {"lid": lid, "uid": user, "rid": rid},
             )
-            await conn.run_sync(migrate, "head")
+            await conn.run_sync(migrate, "20261117_05")
             preserved = (
                 await conn.execute(
                     sa.text(

@@ -22,7 +22,7 @@ router = APIRouter()
 LeagueId = Annotated[int, Path(gt=0, le=2**63 - 1)]
 
 
-def _http_error(error: Exception) -> HTTPException:
+def picture_http_error(error: Exception) -> HTTPException:
     if isinstance(error, LeagueNotFound):
         return HTTPException(404, "League not found")
     if isinstance(error, LeagueForbidden):
@@ -69,7 +69,7 @@ async def post_picture(
         InvalidPicture,
         PictureStorageUnavailable,
     ) as error:
-        raise _http_error(error) from None
+        raise picture_http_error(error) from None
     finally:
         await file.close()
 
@@ -92,7 +92,7 @@ async def get_picture(
             data, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"}
         )
     except (LeagueNotFound, PictureMissing, PictureStorageUnavailable) as error:
-        raise _http_error(error) from None
+        raise picture_http_error(error) from None
 
 
 @router.delete(
@@ -110,7 +110,7 @@ async def delete_picture(
             session, user.id, league_id, request.app.state.blob_storage
         )
     except (LeagueNotFound, LeagueForbidden) as error:
-        raise _http_error(error) from None
+        raise picture_http_error(error) from None
 
 
 @router.get(
@@ -135,4 +135,4 @@ async def get_member_picture(
             data, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"}
         )
     except (LeagueNotFound, PictureMissing, PictureStorageUnavailable) as error:
-        raise _http_error(error) from None
+        raise picture_http_error(error) from None

@@ -124,11 +124,39 @@ async def test_membership_invitation_permissions_and_persistence(league_api):
     token = invitation.json()["token"]
     async with sessions() as session:
         assert await session.scalar(sa.select(league_invitation.c.token_hash)) != token
-    assert (await client.get(f"/api/v1/league-invitations/{token}", auth=bob)).json()[
-        "name"
-    ] == "First"
+    league_url = f"/api/v1/leagues/{league_id}"
+    preview_url = f"/api/v1/league-invitations/{token}"
+    assert (
+        await client.patch(league_url, auth=bob, json={"description": "hidden"})
+    ).status_code == 404
+    assert (
+        await client.patch(league_url, auth=alice, json={"description": "x" * 501})
+    ).status_code == 422
+    updated = await client.patch(league_url, auth=alice, json={"description": "  Train together  "})
+    assert updated.json()["name"] == "First"
+    preview = await client.get(preview_url, auth=bob)
+    assert preview.headers["cache-control"] == "private, no-store"
+    assert preview.json() == {
+        "league_id": league_id,
+        "name": "First",
+        "description": "Train together",
+        "created_at": first["created_at"],
+        "member_count": 1,
+        "already_member": False,
+        "timezone": "Europe/Madrid",
+        "has_picture": False,
+        "expires_at": invitation.json()["expires_at"],
+    }
+    assert (await client.get(preview_url)).status_code == 401
     joined = await client.post(f"/api/v1/league-invitations/{token}/accept", auth=bob)
     assert joined.status_code == 200 and joined.json()["role"] == "member"
+    member_preview = (await client.get(preview_url, auth=bob)).json()
+    assert member_preview["member_count"] == 2
+    assert member_preview["already_member"] is True
+    assert (await client.get(preview_url, auth=eve)).json()["already_member"] is False
+    assert (await client.patch(league_url, auth=bob, json={"description": None})).status_code == 403
+    cleared = await client.patch(league_url, auth=alice, json={"description": None})
+    assert cleared.json()["description"] is None
     joined_at = joined.json()["members"][1]["joined_at"]
     assert joined_at is not None
     assert (await client.post(f"/api/v1/league-invitations/{token}/accept", auth=bob)).json()[

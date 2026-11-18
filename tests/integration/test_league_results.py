@@ -7,10 +7,9 @@ import pytest
 import sqlalchemy as sa
 
 from app.features.leagues.calculation import weekly_bounds
-from app.features.leagues.models import league, league_member
+from app.features.leagues.models import league, league_member, league_score
 from app.features.leagues.result_models import league_result
 from app.features.leagues.results import pending_results
-from app.features.leagues.scoring_models import league_daily_score
 from app.features.posts.models import post
 from tests.integration.test_league_membership import league_api  # noqa: F401
 from tests.integration.test_league_standings import seed_score
@@ -53,9 +52,7 @@ async def test_results_snapshot_acknowledgements_and_access(league_api):  # noqa
     # Reads are nonacknowledging and closure never rewrites an existing snapshot.
     async with sessions.begin() as session:
         await session.execute(
-            league_daily_score.update()
-            .where(league_daily_score.c.league_id == lid)
-            .values(score=99)
+            league_score.update().where(league_score.c.league_id == lid).values(score=99)
         )
     async with sessions() as session:
         assert await pending_results(session, a, lid, now=current + timedelta(hours=1)) == first

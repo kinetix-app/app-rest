@@ -17,6 +17,10 @@ def _request_limit(scope: Scope) -> int | None:
     path = scope["path"].rstrip("/")
     if path == "/api/v1/routines":
         return MAX_ROUTINE_REQUEST_BYTES
+    if path == "/api/v1/leagues/configuration" or re.fullmatch(
+        r"/api/v1/leagues/\d+/configuration", path, flags=re.ASCII
+    ):
+        return MAX_PICTURE_REQUEST_BYTES
     if path == "/api/v1/me/profile/picture" or re.fullmatch(
         r"/api/v1/(?:routines|leagues)/\d+/picture/?", scope["path"], flags=re.ASCII
     ):

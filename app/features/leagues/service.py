@@ -14,6 +14,7 @@ from app.features.leagues.errors import (
     InvitationNotFound,
     LeagueForbidden,
     LeagueNotFound,
+    LeagueRoleChangeForbidden,
 )
 from app.features.leagues.listing import list_leagues as list_leagues
 from app.features.leagues.models import league, league_invitation, league_member
@@ -26,17 +27,34 @@ from app.features.leagues.schemas import (
     LeagueDetail,
     LeagueMember,
     LeaguePatch,
+    Role,
 )
 
 
-async def create_league(session: AsyncSession, user_id: int, data: LeagueCreate) -> LeagueCreated:
+async def create_league(
+    session: AsyncSession,
+    user_id: int,
+    data: LeagueCreate,
+    *,
+    reserved_id: int | None = None,
+    picture_blob_name: str | None = None,
+) -> LeagueCreated:
+    values = data.model_dump() | {"created_by": user_id, "picture_blob_name": picture_blob_name}
+    if reserved_id is not None:
+        values["id"] = reserved_id
     try:
         row = (
             (
                 await session.execute(
                     league.insert()
-                    .values(name=data.name, timezone=data.timezone, created_by=user_id)
-                    .returning(league.c.id, league.c.name, league.c.timezone, league.c.created_at)
+                    .values(**values)
+                    .returning(
+                        league.c.id,
+                        league.c.name,
+                        league.c.description,
+                        league.c.timezone,
+                        league.c.created_at,
+                    )
                 )
             )
             .mappings()
@@ -47,7 +65,9 @@ async def create_league(session: AsyncSession, user_id: int, data: LeagueCreate)
                 league_id=row.id, user_id=user_id, role="admin", joined_at=datetime.now(UTC)
             )
         )
-        result = LeagueCreated(**row, role="admin")
+        result = LeagueCreated(
+            **row, role="admin", picture_url=picture_url(row.id, picture_blob_name)
+        )
         await session.commit()
         return result
     except Exception:
@@ -62,9 +82,11 @@ async def get_league(session: AsyncSession, user_id: int, league_id: int) -> Lea
                 sa.select(
                     league.c.id,
                     league.c.name,
+                    league.c.description,
                     league.c.timezone,
                     league.c.created_at,
                     league.c.picture_blob_name,
+                    league.c.created_by.label("creator_id"),
                     league_member.c.role,
                 )
                 .join(league_member, league_member.c.league_id == league.c.id)
@@ -108,23 +130,45 @@ async def get_league(session: AsyncSession, user_id: int, league_id: int) -> Lea
     )
 
 
+async def require_league_admin(
+    session: AsyncSession, user_id: int, league_id: int, *, lock: bool = False
+) -> str | None:
+    membership = sa.select(league_member.c.role).where(
+        league_member.c.league_id == league_id, league_member.c.user_id == user_id
+    )
+    if lock:
+        # Result acknowledgement and configuration both acquire league before membership.
+        query = (
+            sa.select(league.c.picture_blob_name)
+            .where(league.c.id == league_id, membership.exists())
+            .with_for_update()
+        )
+    else:
+        query = sa.select(league.c.picture_blob_name).where(
+            league.c.id == league_id, membership.exists()
+        )
+    row = (await session.execute(query)).one_or_none()
+    if row is None:
+        raise LeagueNotFound
+    if lock:
+        membership = membership.with_for_update()
+    role = (await session.execute(membership)).one_or_none()
+    if role is None:
+        raise LeagueNotFound
+    if role.role != "admin":
+        raise LeagueForbidden
+    return row.picture_blob_name
+
+
 async def rename_league(
     session: AsyncSession, user_id: int, league_id: int, data: LeaguePatch
 ) -> LeagueDetail:
     try:
-        role = (
-            await session.execute(
-                sa.select(league_member.c.role)
-                .where(league_member.c.league_id == league_id, league_member.c.user_id == user_id)
-                .with_for_update()
-            )
-        ).one_or_none()
-        if role is None:
-            raise LeagueNotFound
-        if role.role != "admin":
-            raise LeagueForbidden
+        await require_league_admin(session, user_id, league_id, lock=True)
         await session.execute(
-            league.update().where(league.c.id == league_id).values(name=data.name)
+            league.update()
+            .where(league.c.id == league_id)
+            .values(**data.model_dump(exclude_unset=True))
         )
         result = await get_league(session, user_id, league_id)
         await session.commit()
@@ -132,6 +176,34 @@ async def rename_league(
     except Exception:
         await session.rollback()
         raise
+
+
+async def update_member_role(
+    session: AsyncSession, user_id: int, league_id: int, member_id: int, role: Role
+) -> LeagueDetail:
+    async with session.begin():
+        await require_league_admin(session, user_id, league_id, lock=True)
+        member = (
+            await session.execute(
+                sa.select(league.c.created_by)
+                .select_from(league_member)
+                .join(league, league.c.id == league_member.c.league_id)
+                .where(league_member.c.league_id == league_id, league_member.c.user_id == member_id)
+                .with_for_update(of=league_member)
+            )
+        ).one_or_none()
+        if member is None:
+            raise LeagueNotFound
+        if member_id == member.created_by:
+            raise LeagueRoleChangeForbidden("The league creator’s role cannot be changed")
+        if member_id == user_id:
+            raise LeagueRoleChangeForbidden("You cannot change your own league role")
+        await session.execute(
+            league_member.update()
+            .where(league_member.c.league_id == league_id, league_member.c.user_id == member_id)
+            .values(role=role)
+        )
+        return await get_league(session, user_id, league_id)
 
 
 async def create_invitation(
@@ -167,12 +239,18 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-async def preview_invitation(session: AsyncSession, token: str) -> InvitationPreview:
+async def invitation_record(session: AsyncSession, token: str):
     row = (
         (
             await session.execute(
                 sa.select(
-                    league.c.id.label("league_id"), league.c.name, league_invitation.c.expires_at
+                    league.c.id.label("league_id"),
+                    league.c.name,
+                    league.c.description,
+                    league.c.created_at,
+                    league.c.timezone,
+                    league.c.picture_blob_name,
+                    league_invitation.c.expires_at,
                 )
                 .join(league_invitation, league_invitation.c.league_id == league.c.id)
                 .where(league_invitation.c.token_hash == _token_hash(token))
@@ -185,12 +263,32 @@ async def preview_invitation(session: AsyncSession, token: str) -> InvitationPre
         raise InvitationNotFound
     if row.expires_at <= datetime.now(UTC):
         raise InvitationExpired
-    return InvitationPreview.model_validate(row)
+    return row
+
+
+async def preview_invitation(session: AsyncSession, user_id: int, token: str) -> InvitationPreview:
+    row = await invitation_record(session, token)
+    counts = (
+        await session.execute(
+            sa.select(
+                sa.func.count().label("member_count"),
+                sa.func.count().filter(league_member.c.user_id == user_id).label("viewer_count"),
+            )
+            .select_from(league_member)
+            .where(league_member.c.league_id == row.league_id)
+        )
+    ).one()
+    return InvitationPreview(
+        **row,
+        member_count=counts.member_count,
+        already_member=counts.viewer_count > 0,
+        has_picture=row.picture_blob_name is not None,
+    )
 
 
 async def accept_invitation(session: AsyncSession, user_id: int, token: str) -> LeagueDetail:
     try:
-        invitation = await preview_invitation(session, token)
+        invitation = await invitation_record(session, token)
         await session.execute(
             insert(league_member)
             .values(

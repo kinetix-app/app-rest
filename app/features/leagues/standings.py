@@ -11,10 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import Profile
 from app.features.leagues.errors import LeagueNotFound
-from app.features.leagues.models import league, league_member
+from app.features.leagues.models import league, league_member, league_round, league_score
 from app.features.leagues.presentation import member_picture_urls
 from app.features.leagues.scoring import ensure_round
-from app.features.leagues.scoring_models import league_daily_score, league_scoring_round
 
 
 class LegacyLeagueUnavailable(Exception):
@@ -96,9 +95,9 @@ async def round_standings(session: AsyncSession, round_row, viewer_id: int):
     daily = (
         (
             await session.execute(
-                sa.select(league_daily_score)
-                .where(league_daily_score.c.round_id == round_row["id"])
-                .order_by(league_daily_score.c.local_day, league_daily_score.c.user_id)
+                sa.select(league_score)
+                .where(league_score.c.round_id == round_row["id"])
+                .order_by(league_score.c.local_day, league_score.c.user_id)
             )
         )
         .mappings()
@@ -140,9 +139,9 @@ async def get_standings(session: AsyncSession, user_id: int, league_id: int):
         rounds = (
             (
                 await session.execute(
-                    sa.select(league_scoring_round)
-                    .where(league_scoring_round.c.league_id == league_id)
-                    .order_by(league_scoring_round.c.start_at.desc())
+                    sa.select(league_round)
+                    .where(league_round.c.league_id == league_id)
+                    .order_by(league_round.c.start_at.desc())
                 )
             )
             .mappings()

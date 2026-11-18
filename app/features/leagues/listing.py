@@ -6,10 +6,9 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.leagues.calculation import weekly_bounds
-from app.features.leagues.models import league, league_member
+from app.features.leagues.models import league, league_member, league_round, league_score
 from app.features.leagues.presentation import picture_url
 from app.features.leagues.schemas import LeagueListItem
-from app.features.leagues.scoring_models import league_daily_score, league_scoring_round
 
 
 async def list_leagues(
@@ -57,26 +56,26 @@ async def list_leagues(
         )
         totals = (
             sa.select(
-                league_daily_score.c.league_id,
-                league_daily_score.c.user_id,
-                sa.func.sum(league_daily_score.c.score).label("score"),
+                league_score.c.league_id,
+                league_score.c.user_id,
+                sa.func.sum(league_score.c.score).label("score"),
             )
             .join(
-                league_scoring_round,
+                league_round,
                 sa.and_(
-                    league_scoring_round.c.id == league_daily_score.c.round_id,
-                    league_scoring_round.c.league_id == league_daily_score.c.league_id,
+                    league_round.c.id == league_score.c.round_id,
+                    league_round.c.league_id == league_score.c.league_id,
                 ),
             )
             .join(
                 boundaries,
                 sa.and_(
-                    boundaries.c.league_id == league_scoring_round.c.league_id,
-                    boundaries.c.start_at == league_scoring_round.c.start_at,
-                    boundaries.c.end_at == league_scoring_round.c.end_at,
+                    boundaries.c.league_id == league_round.c.league_id,
+                    boundaries.c.start_at == league_round.c.start_at,
+                    boundaries.c.end_at == league_round.c.end_at,
                 ),
             )
-            .group_by(league_daily_score.c.league_id, league_daily_score.c.user_id)
+            .group_by(league_score.c.league_id, league_score.c.user_id)
             .cte("weekly_totals")
         )
         ranked = (

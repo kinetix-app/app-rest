@@ -8,8 +8,7 @@ import sqlalchemy as sa
 
 from app.features.leagues import standings
 from app.features.leagues.listing import list_leagues
-from app.features.leagues.models import league, league_member
-from app.features.leagues.scoring_models import league_scoring_round
+from app.features.leagues.models import league, league_member, league_round
 from tests.integration.test_league_membership import league_api  # noqa: F401
 from tests.integration.test_league_standings import seed_score
 
@@ -62,9 +61,7 @@ async def test_batched_card_rank_counts_match_current_standings(league_api, monk
         await seed_score(session, first, e, now - timedelta(hours=2), 50)
         await seed_score(session, first, a, now - timedelta(days=7), 999999)
         await seed_score(session, second, b, now - timedelta(hours=2), 5)
-        rounds_before = await session.scalar(
-            sa.select(sa.func.count()).select_from(league_scoring_round)
-        )
+        rounds_before = await session.scalar(sa.select(sa.func.count()).select_from(league_round))
     queries = []
     engine = sessions.kw["bind"].sync_engine
 
@@ -85,14 +82,12 @@ async def test_batched_card_rank_counts_match_current_standings(league_api, monk
     assert (cards[empty].member_count, cards[empty].current_week_position) == (1, 1)
     async with sessions() as session:
         assert (
-            await session.scalar(sa.select(sa.func.count()).select_from(league_scoring_round))
+            await session.scalar(sa.select(sa.func.count()).select_from(league_round))
             == rounds_before
         )
         assert (
             await session.scalar(
-                sa.select(league_scoring_round.c.id).where(
-                    league_scoring_round.c.league_id == empty
-                )
+                sa.select(league_round.c.id).where(league_round.c.league_id == empty)
             )
             is None
         )

@@ -10,10 +10,9 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.leagues.errors import LeagueNotFound
-from app.features.leagues.models import league_member
+from app.features.leagues.models import league_member, league_round
 from app.features.leagues.presentation import member_picture_urls
 from app.features.leagues.result_models import league_result
-from app.features.leagues.scoring_models import league_scoring_round
 from app.features.leagues.standings import lock_league, materialize_rounds, round_standings
 
 
@@ -22,13 +21,13 @@ async def close_rounds(session: AsyncSession, row, now: datetime):
     rounds = (
         (
             await session.execute(
-                sa.select(league_scoring_round)
+                sa.select(league_round)
                 .where(
-                    league_scoring_round.c.league_id == row["id"],
-                    league_scoring_round.c.end_at <= now,
-                    ~sa.exists().where(league_result.c.round_id == league_scoring_round.c.id),
+                    league_round.c.league_id == row["id"],
+                    league_round.c.end_at <= now,
+                    ~sa.exists().where(league_result.c.round_id == league_round.c.id),
                 )
-                .order_by(league_scoring_round.c.start_at)
+                .order_by(league_round.c.start_at)
             )
         )
         .mappings()
@@ -75,10 +74,10 @@ async def pending_results(session: AsyncSession, user_id: int, league_id: int, n
         query = (
             (
                 sa.select(league_result)
-                .join(league_scoring_round, league_scoring_round.c.id == league_result.c.round_id)
+                .join(league_round, league_round.c.id == league_result.c.round_id)
                 .where(
                     league_result.c.league_id == league_id,
-                    league_scoring_round.c.end_at > member["joined_at"],
+                    league_round.c.end_at > member["joined_at"],
                 )
                 .order_by(league_result.c.id)
             )
@@ -126,13 +125,11 @@ async def acknowledge_result(session: AsyncSession, user_id: int, league_id: int
             (
                 await session.execute(
                     sa.select(league_result)
-                    .join(
-                        league_scoring_round, league_scoring_round.c.id == league_result.c.round_id
-                    )
+                    .join(league_round, league_round.c.id == league_result.c.round_id)
                     .where(
                         league_result.c.id == result_id,
                         league_result.c.league_id == league_id,
-                        league_scoring_round.c.end_at > member["joined_at"],
+                        league_round.c.end_at > member["joined_at"],
                     )
                 )
             )

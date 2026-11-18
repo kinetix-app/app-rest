@@ -18,7 +18,7 @@ league_result = sa.Table(
     ),
     sa.UniqueConstraint("league_id", "id"),
     sa.ForeignKeyConstraint(
-        ["league_id", "round_id"], ["league_scoring_round.league_id", "league_scoring_round.id"]
+        ["league_id", "round_id"], ["league_round.league_id", "league_round.id"]
     ),
 )
 league_member.append_column(sa.Column("last_seen_result_id", sa.BigInteger, nullable=True))

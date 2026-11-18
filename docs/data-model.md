@@ -367,7 +367,4 @@ Python enums define visibility (`PUBLIC`, `PRIVATE`, `LEAGUE`), post type (`SESS
 `LEAGUE_PENALTY`) and file type (`IMAGE`, `VIDEO`). SQLAlchemy validates category
 strings, while PostgreSQL stores VARCHAR without enum types or category CHECKs.
 
-This is persistence only. Visibility permissions, membership enforcement, score
-calculation, date/order/size bounds, media delivery and associations between posts
-and sessions/leagues must be implemented with their consuming features. The current
-foreign keys do not enforce that a score's round belongs to its supplied league.
+The diagram above describes the original persistence revision. The current league schema is consolidated by revision `20261117_06`. `league_round` stores timezone-aware weekly boundaries, and `league_score` records the best daily workout per `(league_id, user_id, local_day)`. Composite foreign keys link each score to membership, the league’s round and its owner’s training session. Immutable workout calculation inputs and the processed marker live on `training_session`. See [league behavior and API](features/leagues.md) for the current rules and migration details.

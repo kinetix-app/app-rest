@@ -100,6 +100,23 @@ async def test_private_picture_permissions_replacement_failure_and_removal(
     assert original.status_code == 200 and original.headers["content-type"] == "image/jpeg"
     assert original.headers["cache-control"] == "private, no-store"
     assert (await client.get(url, auth=eve)).status_code == 404
+    invite = await client.post(f"/api/v1/leagues/{lid}/invitations", auth=alice)
+    token = invite.json()["token"]
+    preview_path = f"/api/v1/league-invitations/{token}"
+    assert (await client.get(preview_path, auth=eve)).json()["has_picture"] is True
+    invite_photo = await client.get(preview_path + "/picture", auth=eve)
+    assert invite_photo.content == original.content
+    assert invite_photo.headers["cache-control"] == "private, no-store"
+    assert (await client.get(preview_path + "/picture")).status_code == 401
+    assert (
+        await client.get("/api/v1/league-invitations/invalid/picture", auth=eve)
+    ).status_code == 404
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.text("UPDATE league_invitation SET expires_at = now() - interval '1 second'")
+        )
+    assert (await client.get(preview_path + "/picture", auth=eve)).status_code == 410
+
     original_name = [blob.name async for blob in container.list_blobs()][0]
     assert not (await container.get_container_properties()).public_access
     async with httpx.AsyncClient() as anonymous:

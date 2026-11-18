@@ -10,9 +10,8 @@ import pytest
 import sqlalchemy as sa
 
 from app.features.accounts.models import Profile
-from app.features.leagues.models import league, league_member
+from app.features.leagues.models import league, league_member, league_score
 from app.features.leagues.scoring import credit_completed_session
-from app.features.leagues.scoring_models import league_daily_score, league_session_calculation
 from app.features.training.models import exercise, exercise_set, session_exercise, training_session
 from tests.integration.test_league_membership import league_api  # noqa: F401, F811
 
@@ -55,15 +54,17 @@ async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
         snap = (
             (
                 await session.execute(
-                    sa.select(league_session_calculation).where(
-                        league_session_calculation.c.session_id == source
-                    )
+                    sa.select(training_session).where(training_session.c.id == source)
                 )
             )
             .mappings()
             .one()
         )
-        assert snap.score == 10 and snap.volume_kg_reps == 800 and snap.body_weight_kg == 80
+        assert (
+            snap.league_score == 10
+            and snap.league_volume_kg_reps == 800
+            and snap.league_body_weight_kg == 80
+        )
         await session.execute(
             sa.update(Profile).where(Profile.user_id == user).values(weight_kg=40)
         )
@@ -75,16 +76,14 @@ async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
         snap = (
             (
                 await session.execute(
-                    sa.select(league_session_calculation).where(
-                        league_session_calculation.c.session_id == source
-                    )
+                    sa.select(training_session).where(training_session.c.id == source)
                 )
             )
             .mappings()
             .one()
         )
-        assert snap.score == 10 and snap.body_weight_kg == 80
-        assert await session.scalar(sa.select(sa.func.count()).select_from(league_daily_score)) == 1
+        assert snap.league_score == 10 and snap.league_body_weight_kg == 80
+        assert await session.scalar(sa.select(sa.func.count()).select_from(league_score)) == 1
 
 
 async def test_replacement_cutoffs_and_concurrency(league_api):  # noqa: F811
@@ -159,9 +158,9 @@ async def test_replacement_cutoffs_and_concurrency(league_api):  # noqa: F811
         winners = (
             (
                 await session.execute(
-                    sa.select(league_daily_score)
-                    .where(league_daily_score.c.league_id == lid)
-                    .order_by(league_daily_score.c.local_day)
+                    sa.select(league_score)
+                    .where(league_score.c.league_id == lid)
+                    .order_by(league_score.c.local_day)
                 )
             )
             .mappings()
@@ -172,9 +171,7 @@ async def test_replacement_cutoffs_and_concurrency(league_api):  # noqa: F811
         assert winners[1].session_id == tomorrow and winners[1].score == Decimal(5)
         assert (
             await session.scalar(
-                sa.select(league_session_calculation.c.score).where(
-                    league_session_calculation.c.session_id == before
-                )
+                sa.select(training_session.c.league_score).where(training_session.c.id == before)
             )
             == 100
         )
@@ -187,9 +184,7 @@ async def test_replacement_cutoffs_and_concurrency(league_api):  # noqa: F811
     async with sessions() as session:
         assert (
             await session.scalar(
-                sa.select(league_session_calculation.c.score).where(
-                    league_session_calculation.c.session_id == low
-                )
+                sa.select(training_session.c.league_score).where(training_session.c.id == low)
             )
             == 10
         )
@@ -245,20 +240,16 @@ async def test_missing_inputs_and_closed_source_are_not_credited(league_api):  #
         )
         await credit_completed_session(session, user, ids[1], now=start + timedelta(days=7))
     async with sessions() as session:
-        assert await session.scalar(sa.select(sa.func.count()).select_from(league_daily_score)) == 0
+        assert await session.scalar(sa.select(sa.func.count()).select_from(league_score)) == 0
         assert (
             await session.scalar(
-                sa.select(league_session_calculation.c.score).where(
-                    league_session_calculation.c.session_id == ids[0]
-                )
+                sa.select(training_session.c.league_score).where(training_session.c.id == ids[0])
             )
             is None
         )
         assert (
             await session.scalar(
-                sa.select(league_session_calculation.c.score).where(
-                    league_session_calculation.c.session_id == ids[1]
-                )
+                sa.select(training_session.c.league_score).where(training_session.c.id == ids[1])
             )
             == 10
         )
@@ -328,8 +319,8 @@ async def test_same_routine_sources_use_each_leagues_local_start_day(league_api)
         rows = (
             (
                 await session.execute(
-                    sa.select(league_daily_score).order_by(
-                        league_daily_score.c.league_id, league_daily_score.c.local_day
+                    sa.select(league_score).order_by(
+                        league_score.c.league_id, league_score.c.local_day
                     )
                 )
             )
