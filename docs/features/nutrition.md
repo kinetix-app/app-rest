@@ -9,17 +9,25 @@ ownership from `CurrentUser`.
 | Operation | Route behavior |
 | --- | --- |
 | Nutrition goal | `GET /api/v1/nutrition-goals/me`, `POST /api/v1/nutrition-goals`, `PATCH /api/v1/nutrition-goals/me` |
-| Food | `GET /api/v1/foods` (optional name search), `POST /api/v1/foods`, `GET/PATCH/DELETE /api/v1/foods/{id}` |
-| Recipe | `GET/POST /api/v1/recipes`, `DELETE /api/v1/recipes/{id}` |
+| Food | `GET /api/v1/foods` (optional name search and pagination), `POST /api/v1/foods`, `GET/PATCH/DELETE /api/v1/foods/{id}` |
+| Recipe | `GET /api/v1/recipes` (optional name search and pagination), `POST /api/v1/recipes`, `DELETE /api/v1/recipes/{id}` |
 | Food meal item | `POST /api/v1/nutrition/meal-items`, `DELETE /api/v1/nutrition/meal-items/{id}` |
 | Recipe meal item | `POST /api/v1/nutrition/recipe-items` |
 | Day summary | `GET /api/v1/nutrition/days/{date}` returns totals and logged items |
 
-Food and recipe records are user-owned. Food search is over the caller's foods; there is
-no shared/external food catalogue. Recipe ingredients must reference foods owned by the
-same account. Food/recipe deletion is rejected with 409 while referenced by a recipe or
-diary item. Day keys are date-only values; the backend does not infer a user's local day
-from a timezone or event timestamp.
+Food search includes active shared foods and the caller's active foods. The optional
+`name` filter matches a case-insensitive substring. Results are ordered by name then ID.
+Use `offset` (zero by default) and `limit` (1–100) to request a page of the same food
+array. Omitting `limit` returns every match from the requested offset. Invalid bounds
+return 422. For example, `GET /api/v1/foods?name=rice&offset=20&limit=21` requests up
+to 21 matches after skipping the first 20. Recipe search uses the same ordering and
+parameters. Pages count recipes, and each returned recipe includes all ingredients
+and nutrition totals.
+
+Recipe ingredients can reference the same active shared or caller-owned foods.
+Deleting a referenced food or recipe archives it to preserve recipes and diary history.
+Day keys are date-only values; the backend does not infer a user's local day from a
+timezone or event timestamp.
 
 Nutrient calculations scale per-100-gram food values by gram quantity. Recipe nutrient
 totals sum ingredient quantities divided by recipe servings, then scale by servings
