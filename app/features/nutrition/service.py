@@ -127,13 +127,20 @@ async def get_food(
     return found
 
 
-async def search_foods(db: AsyncSession, user_id: int, name: str | None = None):
+async def search_foods(
+    db: AsyncSession,
+    user_id: int,
+    name: str | None = None,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+):
     stmt = select(food).where(
         or_(food.c.user_id == user_id, food.c.user_id.is_(None)), food.c.is_active.is_(True)
     )
     if name and name.strip():
         stmt = stmt.where(food.c.name.icontains(name.strip(), autoescape=True))
-    result = await db.execute(stmt.order_by(food.c.name, food.c.id))
+    result = await db.execute(stmt.order_by(food.c.name, food.c.id).offset(offset).limit(limit))
     return result.mappings().all()
 
 
@@ -183,18 +190,34 @@ async def create_recipe(db: AsyncSession, user_id: int, data: RecipeCreate):
 
 
 async def get_recipes(
-    db: AsyncSession, user_id: int, recipe_id: int | None = None, name: str | None = None
+    db: AsyncSession,
+    user_id: int,
+    recipe_id: int | None = None,
+    name: str | None = None,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
 ):
+    ingredients_exist = (
+        select(recipe_ingredient.c.recipe_id)
+        .where(recipe_ingredient.c.recipe_id == recipe.c.id)
+        .exists()
+    )
     conditions = [
         or_(recipe.c.user_id == user_id, recipe.c.user_id.is_(None)),
         recipe.c.is_active.is_(True),
+        ingredients_exist,
     ]
     if recipe_id is not None:
         conditions.append(recipe.c.id == recipe_id)
     if name and name.strip():
         conditions.append(recipe.c.name.icontains(name.strip(), autoescape=True))
     selected_recipe_ids = (
-        select(recipe.c.id).where(*conditions).order_by(recipe.c.name, recipe.c.id)
+        select(recipe.c.id)
+        .where(*conditions)
+        .order_by(recipe.c.name, recipe.c.id)
+        .offset(offset)
+        .limit(limit)
     )
     rows = (
         (
@@ -291,6 +314,21 @@ async def delete_recipe(db: AsyncSession, user_id: int, recipe_id: int) -> None:
         raise RecipeNotFoundError
 
 
+def _recipe_ingredient_values(recipe_id: int, ingredients):
+    return [
+        {
+            "recipe_id": recipe_id,
+            "food_id": ingredient.food_id
+            if hasattr(ingredient, "food_id")
+            else ingredient["food_id"],
+            "quantity_grams": ingredient.quantity_grams
+            if hasattr(ingredient, "quantity_grams")
+            else ingredient["quantity_grams"],
+        }
+        for ingredient in ingredients
+    ]
+
+
 async def update_recipe(db: AsyncSession, user_id: int, recipe_id: int, data: RecipePatch):
     changes = data.model_dump(exclude_unset=True)
     if any(value is None for value in changes.values()):
@@ -378,18 +416,7 @@ async def update_recipe(db: AsyncSession, user_id: int, recipe_id: int, data: Re
         if is_used is not None or "ingredients" in changes:
             await db.execute(
                 insert(recipe_ingredient),
-                [
-                    {
-                        "recipe_id": new_recipe_id,
-                        "food_id": ingredient.food_id
-                        if hasattr(ingredient, "food_id")
-                        else ingredient["food_id"],
-                        "quantity_grams": ingredient.quantity_grams
-                        if hasattr(ingredient, "quantity_grams")
-                        else ingredient["quantity_grams"],
-                    }
-                    for ingredient in ingredients
-                ],
+                _recipe_ingredient_values(new_recipe_id, ingredients),
             )
         await db.commit()
     except Exception:

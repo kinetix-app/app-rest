@@ -47,6 +47,10 @@ from app.features.nutrition.service import (
     update_recipe,
 )
 
+RECIPE_NOT_FOUND = "Recipe not found"
+PageOffset = Annotated[int, Query(ge=0, le=2**63 - 1)]
+PageLimit = Annotated[int | None, Query(ge=1, le=100)]
+
 router = APIRouter(prefix="/foods", tags=["nutrition"])
 recipe_router = APIRouter(prefix="/recipes", tags=["nutrition"])
 
@@ -103,8 +107,10 @@ async def get_foods(
     user: CurrentUser,
     session: DatabaseSession,
     name: Annotated[str | None, Query(min_length=1, max_length=150)] = None,
+    offset: PageOffset = 0,
+    limit: PageLimit = None,
 ) -> list[FoodResponse]:
-    return await search_foods(session, user.id, name)
+    return await search_foods(session, user.id, name, offset=offset, limit=limit)
 
 
 @recipe_router.post("", status_code=status.HTTP_201_CREATED)
@@ -122,8 +128,10 @@ async def read_recipes(
     user: CurrentUser,
     session: DatabaseSession,
     name: Annotated[str | None, Query(min_length=1, max_length=150)] = None,
+    offset: PageOffset = 0,
+    limit: PageLimit = None,
 ) -> list[RecipeResponse]:
-    return await get_recipes(session, user.id, name=name)
+    return await get_recipes(session, user.id, name=name, offset=offset, limit=limit)
 
 
 @recipe_router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -131,9 +139,7 @@ async def remove_recipe(recipe_id: int, user: CurrentUser, session: DatabaseSess
     try:
         await delete_recipe(session, user.id, recipe_id)
     except RecipeNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=RECIPE_NOT_FOUND) from exc
 
 
 @recipe_router.patch("/{recipe_id}")
@@ -152,9 +158,7 @@ async def patch_recipe(
     except FoodNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FOOD_NOT_FOUND) from exc
     except RecipeNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=RECIPE_NOT_FOUND) from exc
 
 
 meal_router = APIRouter(prefix="/nutrition", tags=["nutrition"])
@@ -203,9 +207,7 @@ async def post_recipe_meal_item(
     try:
         return await create_recipe_meal_item(session, user.id, data)
     except RecipeNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=RECIPE_NOT_FOUND) from exc
 
 
 @meal_router.get("/days/{day_date}")

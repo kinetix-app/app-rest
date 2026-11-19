@@ -36,49 +36,48 @@ async def sync_base_foods(sessions: async_sessionmaker[AsyncSession]) -> None:
     rows = [{"user_id": None, "is_active": True, **item} for item in catalogue]
     reference_exists = is_referenced(food.c.id)
     statement = insert(food).values(rows)
-    async with sessions() as session:
-        async with session.begin():
-            existing = (
+    async with sessions() as session, session.begin():
+        existing = (
+            await session.execute(
+                sa.select(food, reference_exists.label("is_referenced")).where(
+                    food.c.user_id.is_(None), food.c.catalog_key.in_(keys)
+                )
+            )
+        ).mappings()
+        catalogue_by_key = {item["catalog_key"]: item for item in catalogue}
+        for source in existing:
+            values = catalogue_by_key[source["catalog_key"]]
+            if source["is_referenced"] and differs_from_catalogue(source, values):
                 await session.execute(
-                    sa.select(food, reference_exists.label("is_referenced")).where(
-                        food.c.user_id.is_(None), food.c.catalog_key.in_(keys)
-                    )
+                    sa.update(food)
+                    .where(food.c.id == source["id"])
+                    .values(catalog_key=None, is_active=False)
                 )
-            ).mappings()
-            catalogue_by_key = {item["catalog_key"]: item for item in catalogue}
-            for source in existing:
-                values = catalogue_by_key[source["catalog_key"]]
-                if source["is_referenced"] and differs_from_catalogue(source, values):
-                    await session.execute(
-                        sa.update(food)
-                        .where(food.c.id == source["id"])
-                        .values(catalog_key=None, is_active=False)
+        await session.execute(
+            statement.on_conflict_do_update(
+                index_elements=[food.c.catalog_key],
+                set_={
+                    column: statement.excluded[column]
+                    for column in (
+                        "name",
+                        "brand",
+                        "calories",
+                        "protein",
+                        "carbohydrates",
+                        "fats",
+                        "barcode",
+                        "is_active",
                     )
-            await session.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[food.c.catalog_key],
-                    set_={
-                        column: statement.excluded[column]
-                        for column in (
-                            "name",
-                            "brand",
-                            "calories",
-                            "protein",
-                            "carbohydrates",
-                            "fats",
-                            "barcode",
-                            "is_active",
-                        )
-                    },
-                )
+                },
             )
-            obsolete = food.c.user_id.is_(None) & (
-                food.c.catalog_key.is_(None) | food.c.catalog_key.not_in(keys)
-            )
-            await session.execute(
-                sa.update(food).where(obsolete, reference_exists).values(is_active=False)
-            )
-            await session.execute(sa.delete(food).where(obsolete, ~reference_exists))
+        )
+        obsolete = food.c.user_id.is_(None) & (
+            food.c.catalog_key.is_(None) | food.c.catalog_key.not_in(keys)
+        )
+        await session.execute(
+            sa.update(food).where(obsolete, reference_exists).values(is_active=False)
+        )
+        await session.execute(sa.delete(food).where(obsolete, ~reference_exists))
 
 
 async def run() -> None:

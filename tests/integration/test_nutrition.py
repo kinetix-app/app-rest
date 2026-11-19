@@ -306,6 +306,111 @@ async def test_food_and_recipe_catalogues_return_all_matching_entries(nutrition_
     assert {item["id"] for item in recipes}.issubset({item["id"] for item in recipe_list.json()})
 
 
+async def test_food_search_pages_after_filtering_and_breaks_name_ties_by_id(nutrition_api):
+    api = nutrition_api
+    last = await create_food(api, "Page Match Z")
+    first_owned = await create_food(api, "Page Match A")
+    other_owner = await api.client.post(
+        "/api/v1/foods", auth=api.bob, json=food_payload("Page Match A")
+    )
+    assert other_owner.status_code == 201
+    async with api.sessions.begin() as session:
+        shared_id = (
+            await session.execute(
+                food.insert().values(**food_payload("Page Match A")).returning(food.c.id)
+            )
+        ).scalar_one()
+        await session.execute(food.insert().values(**food_payload("Page Match A"), is_active=False))
+
+    async def ids(auth, **page):
+        result = await api.client.get(
+            "/api/v1/foods", auth=auth, params={"name": "  PAGE match ", **page}
+        )
+        assert result.status_code == 200
+        return [item["id"] for item in result.json()]
+
+    assert await ids(api.alice, limit=2) == [first_owned["id"], shared_id]
+    assert await ids(api.alice, offset=2, limit=2) == [last["id"]]
+    assert await ids(api.alice, offset=3, limit=2) == []
+    assert await ids(api.alice) == [first_owned["id"], shared_id, last["id"]]
+    assert await ids(api.alice, offset=1) == [shared_id, last["id"]]
+    assert await ids(api.bob, offset=0, limit=3) == [other_owner.json()["id"], shared_id]
+    first_unfiltered = await api.client.get("/api/v1/foods", auth=api.alice, params={"limit": 1})
+    assert first_unfiltered.status_code == 200
+    assert len(first_unfiltered.json()) == 1
+
+
+async def test_recipe_search_pages_complete_visible_recipes(nutrition_api):
+    api = nutrition_api
+    oats = await create_food(api, "Page oats")
+    milk = await create_food(api, "Page milk")
+    last = await create_recipe(api, oats["id"], name="Page Recipe Z")
+    multi = await api.client.post(
+        "/api/v1/recipes",
+        auth=api.alice,
+        json={
+            "name": "Page Recipe A",
+            "servings": 2,
+            "ingredients": [
+                {"food_id": oats["id"], "quantity_grams": 100},
+                {"food_id": milk["id"], "quantity_grams": 50},
+            ],
+        },
+    )
+    assert multi.status_code == 201
+    multi = multi.json()
+    async with api.sessions.begin() as session:
+        # An ingredient-less legacy recipe was already excluded by the list's inner join.
+        await session.execute(recipe.insert().values(name="Page Recipe 0"))
+        shared_id = (
+            await session.execute(
+                recipe.insert().values(name="Page Recipe A").returning(recipe.c.id)
+            )
+        ).scalar_one()
+        inactive_id = (
+            await session.execute(
+                recipe.insert().values(name="Page Recipe A", is_active=False).returning(recipe.c.id)
+            )
+        ).scalar_one()
+        await session.execute(
+            recipe_ingredient.insert(),
+            [
+                {"recipe_id": recipe_id, "food_id": oats["id"], "quantity_grams": 100}
+                for recipe_id in (shared_id, inactive_id)
+            ],
+        )
+
+    async def matches(auth, **page):
+        response = await api.client.get(
+            "/api/v1/recipes", auth=auth, params={"name": "  PAGE recipe ", **page}
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    first = await matches(api.alice, limit=1)
+    assert [item["id"] for item in first] == [multi["id"]]
+    assert {item["food_id"] for item in first[0]["ingredients"]} == {oats["id"], milk["id"]}
+    assert decimal(first[0]["calories"]) == decimal(multi["calories"]) == Decimal("277.5")
+    assert [item["id"] for item in await matches(api.alice, offset=1, limit=2)] == [
+        shared_id,
+        last["id"],
+    ]
+    assert await matches(api.alice, offset=3, limit=2) == []
+    assert [item["id"] for item in await matches(api.alice)] == [multi["id"], shared_id, last["id"]]
+    assert [item["id"] for item in await matches(api.bob, limit=2)] == [shared_id]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"offset": -1}, {"offset": 2**63}, {"limit": 0}, {"limit": 101}, {"offset": "invalid"}],
+)
+async def test_catalogue_search_rejects_invalid_pagination(nutrition_api, params):
+    api = nutrition_api
+    for collection in ("foods", "recipes"):
+        response = await api.client.get(f"/api/v1/{collection}", auth=api.alice, params=params)
+        assert response.status_code == 422
+
+
 async def test_food_and_recipe_edits_version_only_used_sources(nutrition_api):
     api = nutrition_api
     original_food = await create_food(
