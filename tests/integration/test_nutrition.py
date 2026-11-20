@@ -16,6 +16,8 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
+from app.features.nutrition.models import food, recipe, recipe_ingredient
+from app.features.nutrition.seed import sync_base_foods
 from app.main import create_app
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
@@ -59,12 +61,184 @@ async def nutrition_api(integration_url):
             ) as client:
                 alice = httpx.BasicAuth("alice", "password")
                 bob = httpx.BasicAuth("bob", "password")
-                yield SimpleNamespace(client=client, alice=alice, bob=bob)
+                yield SimpleNamespace(client=client, alice=alice, bob=bob, sessions=sessions)
     finally:
         await engine.dispose()
         async with admin.begin() as connection:
             await connection.execute(sa.text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await admin.dispose()
+
+
+async def test_common_foods_and_recipes_are_visible_but_not_owned(nutrition_api):
+    api = nutrition_api
+    async with api.sessions.begin() as session:
+        common_food_id = (
+            await session.execute(
+                food.insert()
+                .values(
+                    user_id=None,
+                    name="Common oats",
+                    calories=370,
+                    protein=13,
+                    carbohydrates=60,
+                    fats=7,
+                )
+                .returning(food.c.id)
+            )
+        ).scalar_one()
+        common_recipe_id = (
+            await session.execute(
+                recipe.insert()
+                .values(user_id=None, name="Common porridge", servings=1)
+                .returning(recipe.c.id)
+            )
+        ).scalar_one()
+        await session.execute(
+            recipe_ingredient.insert().values(
+                recipe_id=common_recipe_id, food_id=common_food_id, quantity_grams=100
+            )
+        )
+
+    for auth in (api.alice, api.bob):
+        foods = await api.client.get("/api/v1/foods", auth=auth, params={"name": "Common oats"})
+        assert foods.status_code == 200
+        assert foods.json()[0]["user_id"] is None
+        recipes = await api.client.get(
+            "/api/v1/recipes", auth=auth, params={"name": "Common porridge"}
+        )
+        assert recipes.status_code == 200
+        assert recipes.json()[0]["user_id"] is None
+
+    assert (
+        await api.client.delete(f"/api/v1/foods/{common_food_id}", auth=api.alice)
+    ).status_code == 404
+    assert (
+        await api.client.delete(f"/api/v1/recipes/{common_recipe_id}", auth=api.alice)
+    ).status_code == 404
+    assert (
+        await api.client.patch(
+            f"/api/v1/foods/{common_food_id}", auth=api.alice, json={"name": "Changed"}
+        )
+    ).status_code == 404
+    assert (
+        await api.client.patch(
+            f"/api/v1/recipes/{common_recipe_id}",
+            auth=api.alice,
+            json={"name": "Changed"},
+        )
+    ).status_code == 404
+
+
+async def test_catalogue_sync_removes_unreferenced_global_foods(nutrition_api):
+    api = nutrition_api
+    personal_food = await create_food(api, "Personal food")
+    async with api.sessions.begin() as session:
+        obsolete_id = (
+            await session.execute(
+                food.insert()
+                .values(
+                    user_id=None,
+                    catalog_key="retired-test-food",
+                    name="Retired food",
+                    calories=100,
+                    protein=10,
+                    carbohydrates=10,
+                    fats=1,
+                    is_active=True,
+                )
+                .returning(food.c.id)
+            )
+        ).scalar_one()
+        referenced_id = (
+            await session.execute(
+                food.insert()
+                .values(
+                    user_id=None,
+                    catalog_key="retired-referenced-food",
+                    name="Retired referenced food",
+                    calories=100,
+                    protein=10,
+                    carbohydrates=10,
+                    fats=1,
+                    is_active=True,
+                )
+                .returning(food.c.id)
+            )
+        ).scalar_one()
+        recipe_id = (
+            await session.execute(
+                recipe.insert()
+                .values(user_id=None, name="Legacy recipe", servings=1)
+                .returning(recipe.c.id)
+            )
+        ).scalar_one()
+        await session.execute(
+            recipe_ingredient.insert().values(
+                recipe_id=recipe_id, food_id=referenced_id, quantity_grams=100
+            )
+        )
+        old_catalogue_id = await session.scalar(
+            sa.select(food.c.id).where(food.c.catalog_key == "rolled-oats")
+        )
+        unreferenced_catalogue_id = await session.scalar(
+            sa.select(food.c.id).where(food.c.catalog_key == "wholemeal-bread")
+        )
+        await session.execute(
+            sa.update(food)
+            .where(food.c.id == unreferenced_catalogue_id)
+            .values(name="Pan integral")
+        )
+        await session.execute(
+            sa.update(food).where(food.c.id == old_catalogue_id).values(name="Avena en copos")
+        )
+        replacement_recipe_id = (
+            await session.execute(
+                recipe.insert()
+                .values(user_id=None, name="Historical oats recipe", servings=1)
+                .returning(recipe.c.id)
+            )
+        ).scalar_one()
+        await session.execute(
+            recipe_ingredient.insert().values(
+                recipe_id=replacement_recipe_id, food_id=old_catalogue_id, quantity_grams=100
+            )
+        )
+    await sync_base_foods(api.sessions)
+    async with api.sessions() as session:
+        assert await session.scalar(sa.select(food.c.id).where(food.c.id == obsolete_id)) is None
+        assert (
+            await session.scalar(sa.select(food.c.is_active).where(food.c.id == referenced_id))
+            is False
+        )
+        assert (
+            await session.scalar(sa.select(food.c.id).where(food.c.id == personal_food["id"]))
+            == personal_food["id"]
+        )
+        assert (
+            await session.scalar(sa.select(food.c.catalog_key).where(food.c.id == old_catalogue_id))
+            is None
+        )
+        assert (
+            await session.scalar(sa.select(food.c.is_active).where(food.c.id == old_catalogue_id))
+            is False
+        )
+        replacement = (
+            await session.execute(
+                sa.select(food.c.id, food.c.name, food.c.is_active).where(
+                    food.c.catalog_key == "rolled-oats"
+                )
+            )
+        ).one()
+        assert replacement.id != old_catalogue_id
+        assert replacement.name == "Rolled oats"
+        assert replacement.is_active is True
+        unreferenced_catalogue = (
+            await session.execute(
+                sa.select(food.c.id, food.c.name).where(food.c.catalog_key == "wholemeal-bread")
+            )
+        ).one()
+        assert unreferenced_catalogue.id == unreferenced_catalogue_id
+        assert unreferenced_catalogue.name == "Wholemeal bread"
 
 
 def food_payload(name="Oats", **overrides):
@@ -105,6 +279,225 @@ async def create_recipe(api, food_id, name="Breakfast bowl", servings=2):
     return response.json()
 
 
+async def test_food_and_recipe_catalogues_return_all_matching_entries(nutrition_api):
+    api = nutrition_api
+    foods = [await create_food(api, f"Catalogue food {index:02}") for index in range(21)]
+
+    food_search = await api.client.get(
+        "/api/v1/foods", auth=api.alice, params={"name": "Catalogue food"}
+    )
+    assert food_search.status_code == 200
+    assert {item["id"] for item in food_search.json()} == {item["id"] for item in foods}
+
+    food_list = await api.client.get("/api/v1/foods", auth=api.alice)
+    assert {item["id"] for item in foods}.issubset({item["id"] for item in food_list.json()})
+
+    recipes = [
+        await create_recipe(api, foods[0]["id"], name=f"Catalogue recipe {index:02}")
+        for index in range(21)
+    ]
+    recipe_search = await api.client.get(
+        "/api/v1/recipes", auth=api.alice, params={"name": "Catalogue recipe"}
+    )
+    assert recipe_search.status_code == 200
+    assert {item["id"] for item in recipe_search.json()} == {item["id"] for item in recipes}
+
+    recipe_list = await api.client.get("/api/v1/recipes", auth=api.alice)
+    assert {item["id"] for item in recipes}.issubset({item["id"] for item in recipe_list.json()})
+
+
+async def test_food_search_pages_after_filtering_and_breaks_name_ties_by_id(nutrition_api):
+    api = nutrition_api
+    last = await create_food(api, "Page Match Z")
+    first_owned = await create_food(api, "Page Match A")
+    other_owner = await api.client.post(
+        "/api/v1/foods", auth=api.bob, json=food_payload("Page Match A")
+    )
+    assert other_owner.status_code == 201
+    async with api.sessions.begin() as session:
+        shared_id = (
+            await session.execute(
+                food.insert().values(**food_payload("Page Match A")).returning(food.c.id)
+            )
+        ).scalar_one()
+        await session.execute(food.insert().values(**food_payload("Page Match A"), is_active=False))
+
+    async def ids(auth, **page):
+        result = await api.client.get(
+            "/api/v1/foods", auth=auth, params={"name": "  PAGE match ", **page}
+        )
+        assert result.status_code == 200
+        return [item["id"] for item in result.json()]
+
+    assert await ids(api.alice, limit=2) == [first_owned["id"], shared_id]
+    assert await ids(api.alice, offset=2, limit=2) == [last["id"]]
+    assert await ids(api.alice, offset=3, limit=2) == []
+    assert await ids(api.alice) == [first_owned["id"], shared_id, last["id"]]
+    assert await ids(api.alice, offset=1) == [shared_id, last["id"]]
+    assert await ids(api.bob, offset=0, limit=3) == [other_owner.json()["id"], shared_id]
+    first_unfiltered = await api.client.get("/api/v1/foods", auth=api.alice, params={"limit": 1})
+    assert first_unfiltered.status_code == 200
+    assert len(first_unfiltered.json()) == 1
+
+
+async def test_recipe_search_pages_complete_visible_recipes(nutrition_api):
+    api = nutrition_api
+    oats = await create_food(api, "Page oats")
+    milk = await create_food(api, "Page milk")
+    last = await create_recipe(api, oats["id"], name="Page Recipe Z")
+    multi = await api.client.post(
+        "/api/v1/recipes",
+        auth=api.alice,
+        json={
+            "name": "Page Recipe A",
+            "servings": 2,
+            "ingredients": [
+                {"food_id": oats["id"], "quantity_grams": 100},
+                {"food_id": milk["id"], "quantity_grams": 50},
+            ],
+        },
+    )
+    assert multi.status_code == 201
+    multi = multi.json()
+    async with api.sessions.begin() as session:
+        # An ingredient-less legacy recipe was already excluded by the list's inner join.
+        await session.execute(recipe.insert().values(name="Page Recipe 0"))
+        shared_id = (
+            await session.execute(
+                recipe.insert().values(name="Page Recipe A").returning(recipe.c.id)
+            )
+        ).scalar_one()
+        inactive_id = (
+            await session.execute(
+                recipe.insert().values(name="Page Recipe A", is_active=False).returning(recipe.c.id)
+            )
+        ).scalar_one()
+        await session.execute(
+            recipe_ingredient.insert(),
+            [
+                {"recipe_id": recipe_id, "food_id": oats["id"], "quantity_grams": 100}
+                for recipe_id in (shared_id, inactive_id)
+            ],
+        )
+
+    async def matches(auth, **page):
+        response = await api.client.get(
+            "/api/v1/recipes", auth=auth, params={"name": "  PAGE recipe ", **page}
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    first = await matches(api.alice, limit=1)
+    assert [item["id"] for item in first] == [multi["id"]]
+    assert {item["food_id"] for item in first[0]["ingredients"]} == {oats["id"], milk["id"]}
+    assert decimal(first[0]["calories"]) == decimal(multi["calories"]) == Decimal("277.5")
+    assert [item["id"] for item in await matches(api.alice, offset=1, limit=2)] == [
+        shared_id,
+        last["id"],
+    ]
+    assert await matches(api.alice, offset=3, limit=2) == []
+    assert [item["id"] for item in await matches(api.alice)] == [multi["id"], shared_id, last["id"]]
+    assert [item["id"] for item in await matches(api.bob, limit=2)] == [shared_id]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"offset": -1}, {"offset": 2**63}, {"limit": 0}, {"limit": 101}, {"offset": "invalid"}],
+)
+async def test_catalogue_search_rejects_invalid_pagination(nutrition_api, params):
+    api = nutrition_api
+    for collection in ("foods", "recipes"):
+        response = await api.client.get(f"/api/v1/{collection}", auth=api.alice, params=params)
+        assert response.status_code == 422
+
+
+async def test_food_and_recipe_edits_version_only_used_sources(nutrition_api):
+    api = nutrition_api
+    original_food = await create_food(
+        api, "Versioned oats", calories="100", protein="10", carbohydrates="10", fats="2"
+    )
+    unused_food_edit = await api.client.patch(
+        f"/api/v1/foods/{original_food['id']}", auth=api.alice, json={"brand": "First edit"}
+    )
+    assert unused_food_edit.status_code == 200
+    assert unused_food_edit.json()["id"] == original_food["id"]
+
+    day = date(2026, 11, 3).isoformat()
+    assert (
+        await api.client.post(
+            "/api/v1/nutrition/meal-items",
+            auth=api.alice,
+            json={
+                "date": day,
+                "meal_type": "breakfast",
+                "food_id": original_food["id"],
+                "quantity_grams": "100",
+            },
+        )
+    ).status_code == 201
+    used_food_edit = await api.client.patch(
+        f"/api/v1/foods/{original_food['id']}",
+        auth=api.alice,
+        json={"name": "New oats", "calories": "200"},
+    )
+    assert used_food_edit.status_code == 200
+    new_food = used_food_edit.json()
+    assert new_food["id"] != original_food["id"]
+    assert decimal(new_food["calories"]) == Decimal("200")
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("100")
+
+    original_recipe = await create_recipe(api, new_food["id"], name="Versioned bowl", servings=1)
+    unused_recipe_edit = await api.client.patch(
+        f"/api/v1/recipes/{original_recipe['id']}",
+        auth=api.alice,
+        json={"servings": 2},
+    )
+    assert unused_recipe_edit.status_code == 200
+    assert unused_recipe_edit.json()["id"] == original_recipe["id"]
+    assert (
+        await api.client.post(
+            "/api/v1/nutrition/recipe-items",
+            auth=api.alice,
+            json={
+                "date": day,
+                "meal_type": "dinner",
+                "recipe_id": original_recipe["id"],
+                "servings": "1",
+            },
+        )
+    ).status_code == 201
+    used_recipe_edit = await api.client.patch(
+        f"/api/v1/recipes/{original_recipe['id']}",
+        auth=api.alice,
+        json={
+            "name": "New bowl",
+            "ingredients": [{"food_id": new_food["id"], "quantity_grams": "200"}],
+        },
+    )
+    assert used_recipe_edit.status_code == 200
+    assert used_recipe_edit.json()["id"] != original_recipe["id"]
+    assert decimal(used_recipe_edit.json()["calories"]) == Decimal("200")
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("200")
+
+    async with api.sessions() as session:
+        assert (
+            await session.scalar(
+                sa.select(food.c.is_active).where(food.c.id == original_food["id"])
+            )
+            is False
+        )
+        assert (
+            await session.scalar(
+                sa.select(recipe.c.is_active).where(recipe.c.id == original_recipe["id"])
+            )
+            is False
+        )
+
+
 async def test_food_crud_search_validation_and_isolation(nutrition_api):
     api = nutrition_api
     created = await create_food(api, "Apple pie", barcode="123")
@@ -114,10 +507,11 @@ async def test_food_crud_search_validation_and_isolation(nutrition_api):
 
     searched = await api.client.get("/api/v1/foods", auth=api.alice, params={"name": "APPLE"})
     assert searched.status_code == 200
-    assert [item["id"] for item in searched.json()] == [food_id]
-    assert (
+    assert food_id in {item["id"] for item in searched.json()}
+    bob_search = (
         await api.client.get("/api/v1/foods", auth=api.bob, params={"name": "apple"})
-    ).json() == []
+    ).json()
+    assert all(item["user_id"] is None for item in bob_search)
     missing_food = await api.client.get(f"/api/v1/foods/{food_id}", auth=api.bob)
     assert missing_food.status_code == 404
     assert missing_food.json() == {"detail": "Food not found"}
@@ -153,10 +547,17 @@ async def test_recipes_calculate_macros_and_protect_owned_foods(nutrition_api):
     assert decimal(recipe["protein"]) == Decimal("3.5")
     assert decimal(recipe["carbohydrates"]) == Decimal("40")
     assert decimal(recipe["fats"]) == Decimal("0.5")
+    assert recipe["ingredients"] == [
+        {"food_id": food["id"], "name": "Rice", "quantity_grams": "100.00"}
+    ]
     assert (await api.client.get("/api/v1/recipes", auth=api.bob)).json() == []
     in_use_food = await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
-    assert in_use_food.status_code == 409
-    assert in_use_food.json() == {"detail": "A food used in a recipe or diary cannot be deleted"}
+    assert in_use_food.status_code == 204
+    rice_search = (
+        await api.client.get("/api/v1/foods", auth=api.alice, params={"name": "rice"})
+    ).json()
+    assert food["id"] not in {item["id"] for item in rice_search}
+    assert any(item["user_id"] is None for item in rice_search)
     missing_recipe = await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.bob)
     assert missing_recipe.status_code == 404
     assert missing_recipe.json() == {"detail": "Recipe not found"}
@@ -212,6 +613,37 @@ async def test_diary_records_food_and_recipe_totals_and_enforces_ownership(nutri
     assert decimal(body["carbohydrates"]) == Decimal("11.25")
     assert decimal(body["fats"]) == Decimal("9")
     assert len(body["items"]) == 2
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{food_item.json()['id']}",
+            auth=api.alice,
+            json={"quantity_grams": "100"},
+        )
+    ).status_code == 204
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{recipe_item.json()['id']}",
+            auth=api.alice,
+            json={"servings": "1"},
+        )
+    ).status_code == 204
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("150")
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{food_item.json()['id']}",
+            auth=api.alice,
+            json={"servings": "1"},
+        )
+    ).status_code == 422
+    assert (
+        await api.client.patch(
+            f"/api/v1/nutrition/meal-items/{food_item.json()['id']}",
+            auth=api.bob,
+            json={"quantity_grams": "50"},
+        )
+    ).status_code == 404
     assert (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.bob)).json()[
         "items"
     ] == []
@@ -226,13 +658,19 @@ async def test_diary_records_food_and_recipe_totals_and_enforces_ownership(nutri
         )
     ).status_code == 204
     in_use_recipe = await api.client.delete(f"/api/v1/recipes/{recipe['id']}", auth=api.alice)
-    assert in_use_recipe.status_code == 409
-    assert in_use_recipe.json() == {
-        "detail": "A recipe already logged in the diary cannot be deleted"
-    }
+    assert in_use_recipe.status_code == 204
+    assert (await api.client.get("/api/v1/recipes", auth=api.alice)).json() == []
     assert (
         await api.client.delete(f"/api/v1/foods/{food['id']}", auth=api.alice)
-    ).status_code == 409
+    ).status_code == 204
+    yogurt_search = (
+        await api.client.get("/api/v1/foods", auth=api.alice, params={"name": "yogurt"})
+    ).json()
+    assert food["id"] not in {item["id"] for item in yogurt_search}
+    assert any(item["user_id"] is None for item in yogurt_search)
+    assert decimal(
+        (await api.client.get(f"/api/v1/nutrition/days/{day}", auth=api.alice)).json()["calories"]
+    ) == Decimal("50")
     missing_food = await api.client.post(
         "/api/v1/nutrition/meal-items",
         auth=api.bob,

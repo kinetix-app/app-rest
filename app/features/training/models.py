@@ -127,6 +127,13 @@ training_session = sa.Table(
     sa.Column("notes", sa.Text(), nullable=True),
     sa.Column("client_session_id", postgresql.UUID(as_uuid=True), nullable=True),
     sa.Column("payload_fingerprint", sa.String(64), nullable=True),
+    # A formula version marks every processed session, including ineligible sessions.
+    sa.Column("league_score", sa.Numeric(40, 0), nullable=True),
+    sa.Column("league_volume_kg_reps", sa.Numeric(40, 6), nullable=True),
+    sa.Column("league_duration_us", sa.BigInteger, nullable=True),
+    sa.Column("league_body_weight_kg", sa.Numeric(10, 6), nullable=True),
+    sa.Column("league_formula_version", sa.String(100), nullable=True),
+    sa.UniqueConstraint("id", "user_id", name="uq_training_session_id_user_id"),
     sa.UniqueConstraint("user_id", "client_session_id"),
 )
 

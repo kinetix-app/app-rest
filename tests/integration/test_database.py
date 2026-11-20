@@ -54,11 +54,28 @@ async def test_committed_data_survives_engine_restart_and_rollback(integration_u
         await engine.dispose()
 
 
-def test_alembic_bootstrap_and_metadata_consistency(integration_url, monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", integration_url.render_as_string(hide_password=False))
-    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-    command.upgrade(config, "head")
-    command.check(config)
+@pytest.mark.anyio
+async def test_alembic_bootstrap_and_metadata_consistency(integration_url):
+    engine = create_async_engine(integration_url)
+    schema = "bootstrap_" + uuid4().hex
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+
+                def verify(conn):
+                    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+                    config.attributes["connection"] = conn
+                    command.upgrade(config, "head")
+                    command.check(config)
+
+                await connection.run_sync(verify)
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.anyio

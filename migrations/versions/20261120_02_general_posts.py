@@ -1,14 +1,14 @@
 """Document the GENERAL post type for posts without a shared workout.
 
-Revision ID: 20261110_02
-Revises: 20261110_01
+Revision ID: 20261120_02
+Revises: 20261120_01
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "20261110_02"
-down_revision = "20261110_01"
+revision = "20261120_02"
+down_revision = "20261120_01"
 branch_labels = None
 depends_on = None
 

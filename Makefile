@@ -20,6 +20,7 @@ seed-exercises: storage migrate
 
 migrate: db
 	$(UV) run --locked --no-build alembic upgrade head
+	$(UV) run --locked --no-build python -m app.features.nutrition.seed
 
 check:
 	$(UV) lock --check

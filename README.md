@@ -493,7 +493,7 @@ and uploads happen before the database transaction. If an upload or the insert f
 the service deletes the blobs it uploaded and no post row remains. Text-only posts work
 without storage configuration. Uploading or reading images without storage returns 503.
 
-Revision `20261110_01` adds nullable `post.training_session_id` (UNIQUE, references
+Revision `20261120_01` adds nullable `post.training_session_id` (UNIQUE, references
 `training_session`) and indexes on `file.post_id` and `post_comment.post_id`. Existing
 posts keep a NULL reference. Downgrading drops the workout link.
 
@@ -528,7 +528,7 @@ author and to the author's accepted friends while the author is active. Unfriend
 access immediately. `GET /api/v1/posts?scope=friends` limits the feed to the caller's own
 posts and their friends' posts; the default `scope=everyone` keeps the public feed.
 
-Revision `20261116_01` adds the `friendship` table (indexed on `user_high_id`; the primary
+Revision `20261120_03` adds the `friendship` table (indexed on `user_high_id`; the primary
 key covers `user_low_id`) and documents the `FRIENDS` visibility. Downgrading turns
 friends-only posts into private posts so they never widen their audience.
 
