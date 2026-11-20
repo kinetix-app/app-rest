@@ -26,7 +26,7 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 ## Development and packaging
 
 - Use uv for dependency management and commands. Commit manifest and lockfile changes together. The README is the setup/command reference. Use `make setup`, `make dev`, `make migrate` and `make check` for local development; the Makefile wraps locked uv commands. Local uv must be at least 0.12.13; Docker and CI retain their exact pin.
-- Compose runs the packaged API, PostgreSQL and Azurite by default; start `postgres` and `azurite` when developing with host uv/Uvicorn. Use host published ports versus Compose service names correctly.
+- Compose runs the packaged API, PostgreSQL and Azurite by default; start `postgres` and `azurite` when developing with host uv/Uvicorn. Use host published ports versus Compose service names correctly. The API and Alembic use `DATABASE_URL`, and blob storage uses `AZURE_STORAGE_CONNECTION_STRING`. Local Compose maps the corresponding container connection strings from `.env.example`. See [production deployment](docs/deployment.md).
 - An optional `sonar` profile runs a local SonarQube Community server for pre-push analysis through `scripts/sonar-scan.sh`; it uses the embedded database and named volumes and is not part of CI.
 - Add dependency services alongside consuming features. Use dependency-native health checks and healthy-startup conditions, with bounded API liveness/readiness behavior and failure/recovery verification.
 - Maintain cached multi-stage builds, compatible Python/OS/runtime paths, a slim non-root runtime and an appropriately scoped Docker build context. Verify runtime contents and cache reuse after packaging changes.

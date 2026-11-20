@@ -37,7 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.clerk_verifier = ClerkVerifier(configuration)
         application.state.blob_storage = None
         try:
-            if configuration.azure_storage_account_url:
+            if configuration.azure_storage_connection_string:
                 application.state.blob_storage = BlobStorage(configuration)
             yield
         finally:

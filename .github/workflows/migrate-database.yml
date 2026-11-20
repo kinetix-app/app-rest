@@ -1,0 +1,51 @@
+name: Migrate production database
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.13"
+
+      - name: Install pinned Python and locked dependencies
+        run: |
+          uv python install
+          uv sync --locked --no-dev --no-build
+
+      - name: Apply migrations and verify the revision
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_CA_PEM: ${{ secrets.DATABASE_CA_PEM }}
+        run: |
+          if [[ -z "$DATABASE_URL" ]]; then
+            echo "::error::Set DATABASE_URL in the production GitHub environment."
+            exit 1
+          fi
+          if [[ -n "$DATABASE_CA_PEM" ]]; then
+            ca_file="$(mktemp "$RUNNER_TEMP/postgres-ca.XXXXXX")"
+            trap 'rm -f "$ca_file"' EXIT
+            printf '%s\n' "$DATABASE_CA_PEM" > "$ca_file"
+            export PGSSLROOTCERT="$ca_file"
+          fi
+          uv run --locked --no-dev --no-build alembic upgrade head
+          uv run --locked --no-dev --no-build alembic current --check-heads
