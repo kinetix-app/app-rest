@@ -514,10 +514,10 @@ async def test_private_picture_upload_isolation_replacement_and_failure(
     settings = Settings(
         _env_file=None,
         app_env="test",
-        postgres_password=SecretStr("unused"),
-        azure_storage_account_name=account,
-        azure_storage_account_url=url,
-        azure_storage_account_key=SecretStr(key),
+        database_url="postgresql://unused:unused@localhost/unused",
+        azure_storage_connection_string=(
+            f"AccountName={account};AccountKey={key};BlobEndpoint={url}"
+        ),
         azure_storage_media_base_url=url,
         azure_storage_container="test-exercises-" + uuid4().hex,
         azure_storage_profile_container="test-profiles-" + uuid4().hex,

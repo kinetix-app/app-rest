@@ -13,7 +13,6 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
-from pydantic import SecretStr
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -177,10 +176,10 @@ async def test_real_blob_upload_readback_rerun_and_database_persistence(
     settings = Settings(
         _env_file=None,
         app_env="test",
-        postgres_password=SecretStr("unused"),
-        azure_storage_account_name=account,
-        azure_storage_account_url=url,
-        azure_storage_account_key=SecretStr(key),
+        database_url="postgresql://unused:unused@localhost/unused",
+        azure_storage_connection_string=(
+            f"AccountName={account};AccountKey={key};BlobEndpoint={url}"
+        ),
         azure_storage_container=container,
         azure_storage_media_base_url=url,
         azure_storage_local_public_read=True,

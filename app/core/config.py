@@ -9,27 +9,45 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
 
-class Settings(BaseSettings):
+class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
     )
 
+    database_url: SecretStr
+    database_timeout_seconds: float = Field(default=2, gt=0, le=30)
+
+    @model_validator(mode="after")
+    def validate_database_configuration(self) -> Self:
+        self.database_connection_url()
+        return self
+
+    def database_connection_url(self) -> URL:
+        try:
+            url = make_url(self.database_url.get_secret_value())
+        except ArgumentError, ValueError:
+            raise ValueError("DATABASE_URL must be a valid PostgreSQL connection string") from None
+        if url.drivername not in ("postgres", "postgresql", "postgresql+asyncpg") or not (
+            url.host and url.database
+        ):
+            raise ValueError("DATABASE_URL must specify a PostgreSQL host and database")
+        if "sslmode" in url.query:
+            if "ssl" in url.query:
+                raise ValueError("DATABASE_URL must specify only one of sslmode and ssl")
+            url = url.update_query_dict({"ssl": url.query["sslmode"]}).difference_update_query(
+                ["sslmode"]
+            )
+        return url.set(drivername="postgresql+asyncpg")
+
+
+class Settings(DatabaseSettings):
     app_env: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    database_url: SecretStr | None = None
-    postgres_user: str = Field(default="fitness", min_length=1)
-    postgres_password: SecretStr | None = None
-    postgres_db: str = Field(default="fitness", min_length=1)
-    postgres_host: str = Field(default="127.0.0.1", min_length=1)
-    postgres_port: int = Field(default=5432, ge=1, le=65535)
-    database_timeout_seconds: float = Field(default=2, gt=0, le=30)
     cors_allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8081"])
     auth_mode: Literal["basic", "clerk"] | None = None
     basic_auth_users: dict[str, SecretStr] = Field(default_factory=dict)
 
-    azure_storage_account_name: str | None = Field(default=None, pattern=r"^[a-z0-9]{3,24}$")
-    azure_storage_account_url: str | None = None
-    azure_storage_account_key: SecretStr | None = None
+    azure_storage_connection_string: SecretStr | None = None
     azure_storage_container: str = Field(
         default="exercises", pattern=r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
     )
@@ -51,13 +69,10 @@ class Settings(BaseSettings):
 
     @field_validator(
         "auth_mode",
-        "database_url",
         "clerk_issuer",
         "clerk_audience",
         "clerk_secret_key",
-        "azure_storage_account_name",
-        "azure_storage_account_url",
-        "azure_storage_account_key",
+        "azure_storage_connection_string",
         "azure_storage_media_base_url",
         mode="before",
     )
@@ -105,32 +120,9 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_database_configuration(self) -> Self:
-        if self.database_url is not None:
-            try:
-                url = make_url(self.database_url.get_secret_value())
-            except ArgumentError:
-                raise ValueError("DATABASE_URL must be a valid PostgreSQL connection URL") from None
-            if url.drivername != "postgresql+asyncpg" or not url.host or not url.database:
-                raise ValueError("DATABASE_URL must use postgresql+asyncpg with host and database")
-        elif self.postgres_password is None or not self.postgres_password.get_secret_value():
-            raise ValueError(
-                "Set POSTGRES_PASSWORD or DATABASE_URL before starting the application"
-            )
-        return self
-
-    @model_validator(mode="after")
     def validate_storage_configuration(self) -> Self:
-        values = (
-            self.azure_storage_account_name,
-            self.azure_storage_account_url,
-            self.azure_storage_account_key,
-            self.azure_storage_media_base_url,
-        )
-        if any(values) and not all(values):
-            raise ValueError(
-                "Azure storage requires account name, account URL, key and media base URL"
-            )
+        if bool(self.azure_storage_connection_string) != bool(self.azure_storage_media_base_url):
+            raise ValueError("Azure storage requires a connection string and media base URL")
         containers = (
             self.azure_storage_container,
             self.azure_storage_profile_container,
@@ -142,9 +134,7 @@ class Settings(BaseSettings):
             raise ValueError("Exercise, profile and post containers must be different")
         if any("--" in name for name in containers):
             raise ValueError("Azure container names cannot contain consecutive hyphens")
-        for value in (self.azure_storage_account_url, self.azure_storage_media_base_url):
-            if value is None:
-                continue
+        if value := self.azure_storage_media_base_url:
             url = urlsplit(value)
             if (
                 url.scheme not in ("http", "https")
@@ -162,16 +152,3 @@ class Settings(BaseSettings):
         if self.azure_storage_local_public_read and self.app_env == "production":
             raise ValueError("Local public blob access is forbidden in production")
         return self
-
-    def database_connection_url(self) -> URL:
-        if self.database_url is not None:
-            return make_url(self.database_url.get_secret_value())
-        assert self.postgres_password is not None
-        return URL.create(
-            "postgresql+asyncpg",
-            username=self.postgres_user,
-            password=self.postgres_password.get_secret_value(),
-            host=self.postgres_host,
-            port=self.postgres_port,
-            database=self.postgres_db,
-        )

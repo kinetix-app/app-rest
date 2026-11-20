@@ -1,7 +1,6 @@
 import os
 
 import pytest
-from pydantic import SecretStr
 from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
@@ -17,9 +16,7 @@ def settings():
     return Settings(
         _env_file=None,
         auth_mode="clerk",
-        database_url=None,
-        postgres_password=SecretStr("test-only-password"),
-        postgres_port=1,
+        database_url="postgresql://user:test-only-password@127.0.0.1:1/test",
         database_timeout_seconds=0.2,
     )
 

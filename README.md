@@ -16,7 +16,7 @@ The management repository owns product scope, sprint commitments, diagrams and a
 
 Install Docker with Compose v2, uv **0.12.13 or newer**, and Make. Docker/CI keep an exact uv pin for reproducible builds. uv manages Python using `.python-version`.
 
-For a fresh checkout, copy `.env.example` to `.env`; keep any existing local `.env`. Set `POSTGRES_PASSWORD` and configure `BASIC_AUTH_USERS` with your own development email/password before signing in.
+For a fresh checkout, copy `.env.example` to `.env`. If you already have a local `.env`, copy in the new connection-string settings and keep your existing credentials. Set your local PostgreSQL password in `POSTGRES_PASSWORD` and both database URLs. Configure `BASIC_AUTH_USERS` before signing in. For hosted environments, see the [production deployment guide](docs/deployment.md).
 
 ```sh
 make setup
@@ -92,7 +92,7 @@ The [Makefile](Makefile) wraps the existing uv and Compose commands. It uses the
 |---|---|
 | `make setup` | Install locked development dependencies, start PostgreSQL and apply migrations |
 | `make dev` | Ensure PostgreSQL and Azurite are healthy and start Uvicorn with reload |
-| `make migrate` | Apply migrations after pulling schema changes |
+| `make migrate` | Apply migrations and synchronize the shared food catalogue |
 | `make check` | Check the lockfile, Ruff lint/format and non-integration tests |
 | `make db` | Start PostgreSQL alone |
 | `make storage` | Start the local Azurite blob service |
@@ -114,11 +114,10 @@ The factory loads and validates one settings object. Database resources are crea
 
 | Setting | Default/purpose |
 |---|---|
-| `POSTGRES_USER`, `POSTGRES_DB` | `fitness`; local database role and name |
-| `POSTGRES_PASSWORD` | Required local credential unless `DATABASE_URL` supplies the connection |
-| `POSTGRES_HOST` | `127.0.0.1` for the host API; Compose sets `postgres` for the API container |
-| `POSTGRES_PORT` | `5432` on the host; change for local port conflicts; container connections use 5432 |
-| `DATABASE_URL` | Optional complete `postgresql+asyncpg` URL; takes precedence in the host application |
+| `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PASSWORD` | Initialize the local PostgreSQL container |
+| `POSTGRES_PORT` | Local PostgreSQL published port, default 5432 |
+| `DATABASE_URL` | Required PostgreSQL URI for the host API and Alembic |
+| `DATABASE_COMPOSE_URL` | PostgreSQL URI for the local Compose API and Alembic, using `postgres:5432` |
 | `API_PORT` | Compose API host port, default 8000 |
 | `API_BIND_ADDRESS` | Host interface for the Compose API; default `127.0.0.1`; set to `0.0.0.0` for physical devices on your LAN |
 | `CORS_ALLOWED_ORIGINS` | JSON array of browser origins allowed to call the API; defaults to `["http://localhost:8081"]` |
@@ -134,7 +133,7 @@ The factory loads and validates one settings object. Database resources are crea
 | `SONAR_CLOUD_TOKEN` | Optional SonarCloud token used by the `sonarqube-issues` skill |
 | `SONAR_ORGANIZATION` | SonarCloud organization key used by the `sonarqube-issues` skill; defaults to `kinetix-app` in `.env.example` |
 
-The component settings construct database URLs safely when passwords contain reserved characters. Encode credentials when providing a complete URL. Compose reads the same `.env` through `env_file`, overriding only the database connection to use `postgres:5432`; host `DATABASE_URL` overrides remain local. Keep credentials outside version control.
+Percent-encode reserved characters in URI credentials. Keep both development URIs aligned with the local PostgreSQL credentials. If you change the host port, update `DATABASE_URL` too. Compose maps `DATABASE_COMPOSE_URL` into the API container as `DATABASE_URL`.
 
 `API_PORT` controls container publishing. For a different host-run API port, pass Uvicorn `--port`. Development dependency ports bind to loopback. When testing with a physical frontend device, explicitly choose the host API bind address and the device-reachable API URL for that demonstration.
 
@@ -542,23 +541,21 @@ Copy the storage block from `.env.example` into an existing local `.env`. Azurit
 
 | Setting | Purpose |
 |---|---|
-| `AZURE_STORAGE_ACCOUNT_NAME` | Azure account name; local emulator account `kinetixlocal` |
-| `AZURE_STORAGE_ACCOUNT_URL` | Backend account root; host example `http://127.0.0.1:10000/kinetixlocal` |
-| `AZURE_STORAGE_ACCOUNT_KEY` | Backend-only shared account key; never expose a real Azure key to clients |
+| `AZURE_STORAGE_CONNECTION_STRING` | Backend-only Azure SDK connection string. The example points the host API at Azurite. |
 | `AZURE_STORAGE_CONTAINER` | Blob container name, default `exercises` |
 | `AZURE_STORAGE_PROFILE_CONTAINER` | Separate private profile image container, default `profile-pictures`; never receives public-read mode |
 | `AZURE_STORAGE_POST_CONTAINER` | Separate private post image container, default `post-media`; images are served only through the authenticated posts API |
 | `AZURE_STORAGE_MEDIA_BASE_URL` | Client-reachable account/CDN root, without container, credentials, query or SAS; used to build stored media URLs |
 | `AZURE_STORAGE_LOCAL_PUBLIC_READ` | Default false; `.env.example` enables blob-only anonymous reads for local demonstration; forbidden in production |
 | `AZURE_STORAGE_TIMEOUT_SECONDS` | Per-upload/container operation timeout, default 30 seconds; readiness uses `DATABASE_TIMEOUT_SECONDS` |
-| `AZURE_STORAGE_COMPOSE_ACCOUNT_URL` | Packaged API override; defaults to `http://azurite:10000/kinetixlocal` |
+| `AZURE_STORAGE_COMPOSE_CONNECTION_STRING` | Connection string for the local Compose API, using the Azurite service endpoint |
 | `AZURITE_PORT`, `AZURITE_BIND_ADDRESS` | Host publishing, defaults `10000` / `127.0.0.1` |
 
-All four account name/URL/key/media URL settings must be supplied together. Without them, the host API runs without a storage client; a consuming route using `AzureStorage` returns 503. The packaged local API supplies emulator defaults through Compose. The client is created/disposed in application lifespan and is available through `app/core/storage/azure.py`'s dependency; it does not create containers during startup. Readiness checks the account, allowing a fresh installation before the first seed.
+Supply the connection string and media base URL together. When both are omitted, the API runs without a storage client and storage-dependent routes return 503. The application manages the client in its lifespan. Readiness checks the account before any containers need to exist.
 
-For a real Azure account, configure its account name, HTTPS account root, a backend-only account key and the HTTPS media delivery root. When using Compose, also set `AZURE_STORAGE_COMPOSE_ACCOUNT_URL` to that account root. Set `AZURE_STORAGE_LOCAL_PUBLIC_READ=false`. The seed command creates private containers by default and never changes an existing container's visibility. Production media authorization/delivery remains a product/deployment decision; plain private blob URLs require an authorized delivery layer, and the seed command does not create permanent SAS URLs. Local public-read mode creates a new container with blob read access; an existing private container must be configured explicitly before seeding in that mode.
+For real Azure storage, see the [production deployment guide](docs/deployment.md). For local demonstrations, blob-only anonymous reads apply only when creating a new exercise container. Configure an existing private exercise container explicitly before seeding in that mode.
 
-For physical-device demonstrations, set `AZURITE_BIND_ADDRESS=0.0.0.0` on a trusted LAN and use the host's LAN address in `AZURE_STORAGE_MEDIA_BASE_URL`. Keep the backend account URL on loopback for a host API or on the Compose service for a container. Changing the media delivery root requires rerunning the seed to refresh database URLs. Changing `AZURITE_PORT` also requires updating the host account and media URLs.
+For physical-device demonstrations, set `AZURITE_BIND_ADDRESS=0.0.0.0` on a trusted LAN and use the host's LAN address in `AZURE_STORAGE_MEDIA_BASE_URL`. The backend endpoint stays in its connection string. Changing the media root requires rerunning the seed to refresh stored URLs. If you change `AZURITE_PORT`, update the host connection string and media URL too.
 
 ### Validate, migrate and import
 

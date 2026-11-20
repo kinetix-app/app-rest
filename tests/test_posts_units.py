@@ -3,7 +3,7 @@ from io import BytesIO
 import httpx
 import pytest
 from PIL import Image
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from app.core.config import Settings
 from app.features.posts.media import MAX_POST_REQUEST_BYTES, normalize_post_image
@@ -51,6 +51,6 @@ def test_post_container_must_differ_from_other_containers():
     with pytest.raises(ValidationError, match="post containers must be different"):
         Settings(
             _env_file=None,
-            postgres_password=SecretStr("test-only-password"),
+            database_url="postgresql://user:test-only-password@127.0.0.1/test",
             azure_storage_post_container="profile-pictures",
         )
