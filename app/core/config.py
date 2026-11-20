@@ -1,5 +1,6 @@
 """Typed environment configuration without import-time database connections."""
 
+from math import ceil
 from typing import Literal, Self
 from urllib.parse import urlsplit
 
@@ -7,6 +8,9 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
+
+_POSTGRES_DIALECT = "postgresql+psycopg"
+_POSTGRES_URL_SCHEMES = {"postgres", "postgresql", _POSTGRES_DIALECT, "postgresql+asyncpg"}
 
 
 class DatabaseSettings(BaseSettings):
@@ -27,17 +31,20 @@ class DatabaseSettings(BaseSettings):
             url = make_url(self.database_url.get_secret_value())
         except ArgumentError, ValueError:
             raise ValueError("DATABASE_URL must be a valid PostgreSQL connection string") from None
-        if url.drivername not in ("postgres", "postgresql", "postgresql+asyncpg") or not (
-            url.host and url.database
-        ):
+        if url.drivername not in _POSTGRES_URL_SCHEMES or not (url.host and url.database):
             raise ValueError("DATABASE_URL must specify a PostgreSQL host and database")
-        if "sslmode" in url.query:
-            if "ssl" in url.query:
+        # Older configurations may use the asyncpg spelling for the TLS mode.
+        if (legacy_ssl_mode := url.query.get("ssl")) is not None:
+            if "sslmode" in url.query:
                 raise ValueError("DATABASE_URL must specify only one of sslmode and ssl")
-            url = url.update_query_dict({"ssl": url.query["sslmode"]}).difference_update_query(
-                ["sslmode"]
+            url = url.difference_update_query(["ssl"]).update_query_dict(
+                {"sslmode": legacy_ssl_mode}
             )
-        return url.set(drivername="postgresql+asyncpg")
+        return url.set(drivername=_POSTGRES_DIALECT)
+
+    def database_connect_args(self) -> dict[str, int]:
+        # libpq accepts a whole number of seconds.
+        return {"connect_timeout": ceil(self.database_timeout_seconds)}
 
 
 class Settings(DatabaseSettings):

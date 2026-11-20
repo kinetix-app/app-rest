@@ -12,16 +12,19 @@ def test_missing_credentials_fail_without_exposing_input(monkeypatch):
         Settings(_env_file=None)
 
 
-def test_password_characters_are_preserved_in_connection_url():
+def test_connection_url_preserves_password_and_channel_binding():
     password = "local@password:/?#%"
+    encoded_password = quote(password, safe="")
     settings = Settings(
         _env_file=None,
-        database_url=f"postgresql://user:{quote(password, safe='')}@db/name?sslmode=require",
+        database_url=(
+            f"postgresql://user:{encoded_password}@db/name?sslmode=require&channel_binding=require"
+        ),
     )
     url = settings.database_connection_url()
     assert url.password == password
-    assert url.drivername == "postgresql+asyncpg"
-    assert url.query == {"ssl": "require"}
+    assert url.drivername == "postgresql+psycopg"
+    assert url.query == {"sslmode": "require", "channel_binding": "require"}
     assert password not in repr(settings)
     assert password not in str(url)
 

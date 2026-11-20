@@ -45,7 +45,7 @@ async def run_migrations_online() -> None:
     engine = create_async_engine(
         settings.database_connection_url(),
         poolclass=pool.NullPool,
-        connect_args={"timeout": settings.database_timeout_seconds},
+        connect_args=settings.database_connect_args(),
     )
     try:
         async with engine.connect() as connection:

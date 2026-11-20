@@ -19,7 +19,7 @@ def create_database_engine(settings: Settings) -> AsyncEngine:
         pool_size=5,
         max_overflow=5,
         pool_timeout=settings.database_timeout_seconds,
-        connect_args={"timeout": settings.database_timeout_seconds},
+        connect_args=settings.database_connect_args(),
     )
 
 

@@ -26,7 +26,7 @@ async def league_api(integration_url):
     schema = "league_" + uuid4().hex
     admin = create_async_engine(integration_url)
     engine = create_async_engine(
-        integration_url, connect_args={"server_settings": {"search_path": schema}}
+        integration_url, connect_args={"options": f"-csearch_path={schema}"}
     )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
