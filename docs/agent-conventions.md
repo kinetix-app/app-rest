@@ -4,7 +4,7 @@ These rules supplement [AGENTS.md](../AGENTS.md). Use [README.md](../README.md) 
 
 ## Structure and persistence
 
-- Use FastAPI, SQLAlchemy async with asyncpg, Alembic, Pydantic v2 and typed settings. Features live under `app/features/`; compose business routes under `/api/v1`. Keep routers thin, use-case and transaction logic in services, and reused complex queries in focused modules.
+- Use FastAPI, SQLAlchemy async with Psycopg 3, Alembic, Pydantic v2 and typed settings. Features live under `app/features/`; compose business routes under `/api/v1`. Keep routers thin, use-case and transaction logic in services, and reused complex queries in focused modules.
 - Define expected use-case exceptions in each feature's `errors.py`, independent of HTTP transport. Services raise domain exceptions; routers translate them to the existing HTTP status and message contracts.
 - Keep ORM models and create/update/private/public response schemas distinct. Validate bounds, output visibility, errors and PATCH omission/null semantics in schemas/services.
 - Account IDs are generated BIGINTs. Use VARCHAR for enum-like categories and VARCHAR[] for multiple classifications; document intended values in SQL comments and mark unresolved vocabularies as proposed. Do not introduce PostgreSQL ENUM types for them.

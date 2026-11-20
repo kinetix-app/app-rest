@@ -101,7 +101,7 @@ jobs:
 
       - name: Run unit, PostgreSQL and Azurite integration tests
         env:
-          TEST_DATABASE_URL: postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:5432/fitness_test
+          TEST_DATABASE_URL: postgresql://fitness_test:fitness_test_local@127.0.0.1:5432/fitness_test
           TEST_AZURE_STORAGE_ACCOUNT_NAME: kinetixlocal
           TEST_AZURE_STORAGE_ACCOUNT_URL: http://127.0.0.1:10000/kinetixlocal
           TEST_AZURE_STORAGE_ACCOUNT_KEY: a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ==

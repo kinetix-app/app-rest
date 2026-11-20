@@ -12,7 +12,7 @@ Kinetix connects personal goals, nutrition and activity tracking with shared tra
 
 ## Code conventions
 
-- Use FastAPI, SQLAlchemy async with asyncpg, Alembic, Pydantic v2 and typed settings. Follow the Python pin and uv lockfile.
+- Use FastAPI, SQLAlchemy async with Psycopg 3, Alembic, Pydantic v2 and typed settings. Follow the Python pin and uv lockfile.
 - Implement feature packages under `app/features/`. Keep routers thin, use-case/transaction logic in services, and reused complex queries in focused modules. Compose business routes under `/api/v1`.
 - Keep ORM models and create/update/private/public response schemas distinct. Validate bounds, output visibility, errors and PATCH omission/null behavior. Store enum-like categories as VARCHAR (VARCHAR[] for multiple classifications), document intended values in SQL comments, and mark unresolved vocabularies as proposed; do not introduce PostgreSQL ENUM types for them.
 - Load settings once in `create_app`; launch Uvicorn with `app.main:create_app --factory`. Inject identity, settings and sessions. Use application lifespan for pooled resource creation/disposal. One session per request/use case; each concurrent task gets its own session. Load relationships needed for serialization explicitly.

@@ -30,7 +30,7 @@ async def exercise_database(integration_url):
     schema = "seed_" + uuid4().hex
     admin = create_async_engine(integration_url)
     engine = create_async_engine(
-        integration_url, connect_args={"server_settings": {"search_path": schema}}
+        integration_url, connect_args={"options": f"-csearch_path={schema}"}
     )
     try:
         async with admin.begin() as connection:

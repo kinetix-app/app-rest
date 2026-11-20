@@ -27,7 +27,7 @@ Open [API docs](http://127.0.0.1:8000/docs). Development uses Basic authenticati
 
 ## Stack and structure
 
-Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Pydantic v2/settings, SQLAlchemy async with asyncpg, Alembic, Uvicorn, Ruff, pytest and HTTPX. PostgreSQL **18.6** is served by a pinned Compose image. Resolved Python dependency versions are in `uv.lock`; Docker base/tool/service images are pinned by digest.
+Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Pydantic v2/settings, SQLAlchemy async with Psycopg 3, Alembic, Uvicorn, Ruff, pytest and HTTPX. PostgreSQL **18.6** is served by a pinned Compose image. Resolved Python dependency versions are in `uv.lock`; Docker base/tool/service images are pinned by digest.
 
 | Location | Purpose |
 |---|---|
@@ -164,7 +164,7 @@ Run the complete suite against the dedicated test service:
 
 ```sh
 docker compose up -d --wait postgres-test
-TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test uv run --locked --no-build pytest
+TEST_DATABASE_URL=postgresql://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test uv run --locked --no-build pytest
 ```
 
 Use the configured test port in the URL if changed. The test service has its own container, database and volume. Without `TEST_DATABASE_URL`, PostgreSQL tests are explicitly skipped. With it, the suite verifies real readiness, committed data across engine disposal, transaction rollback and Alembic bootstrap/metadata consistency. Integration tests create and remove only test-owned tables.
@@ -591,7 +591,7 @@ Run the full suite, including real storage upload/readback tests against unique 
 
 ```sh
 docker compose up -d --wait postgres-test azurite
-TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test \
+TEST_DATABASE_URL=postgresql://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test \
 TEST_AZURE_STORAGE_ACCOUNT_NAME=kinetixlocal \
 TEST_AZURE_STORAGE_ACCOUNT_URL=http://127.0.0.1:10000/kinetixlocal \
 TEST_AZURE_STORAGE_ACCOUNT_KEY=a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ== \

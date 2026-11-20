@@ -32,6 +32,11 @@ Set the following regular environment variables.
 
 See the [authentication runbook](authentication.md) for Clerk configuration.
 
+For Neon, copy the PostgreSQL connection URI into `DATABASE_URL`, keeping
+`sslmode=require&channel_binding=require`. The API and Alembic use Psycopg 3
+and pass both parameters to libpq. URLs starting with `postgresql://` work
+directly in both Render and the GitHub migration workflow.
+
 ## Run production migrations
 
 1. Create a GitHub Actions environment named `production`. Add its `DATABASE_URL`
