@@ -89,7 +89,7 @@ async def test_clean_migration_matches_sql_draft_and_downgrades(integration_url)
                 await connection.run_sync(lambda conn: migrate(conn, "head"))
                 actual = await connection.run_sync(lambda conn: schema_signature(conn, migrated))
                 expected = await connection.run_sync(lambda conn: schema_signature(conn, draft))
-                assert len(actual) == 31
+                assert len(actual) == 32
                 assert actual == expected
                 base_foods = json.loads(
                     (ROOT / "app" / "features" / "nutrition" / "base_foods.json").read_text()

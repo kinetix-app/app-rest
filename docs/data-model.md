@@ -1,6 +1,6 @@
 # Kinetix database schema and ER diagram
 
-This diagram covers the 21 core tables; the eight Sprint 2 tables are described below (29 tables in the current migration chain). Migrations are the runtime authority; [db-schema.sql](../db-schema.sql) is the companion schema reference, not a migration input. The chain converts existing UUID accounts to generated BIGINT IDs and adds workout retries and resumable snapshots. See the [README](../README.md) for implemented API behavior and verification. Existing account constraints are retained.
+This diagram covers the 21 core tables; the eight Sprint 2 tables are described below (30 tables in the current migration chain, including `friendship`). Migrations are the runtime authority; [db-schema.sql](../db-schema.sql) is the companion schema reference, not a migration input. The chain converts existing UUID accounts to generated BIGINT IDs and adds workout retries and resumable snapshots. See the [README](../README.md) for implemented API behavior and verification. Existing account constraints are retained.
 
 `BIGSERIAL` is shown as `bigint` with a generated-value note. All local keys/references use BIGINT. `PK` = primary key, `FK` = foreign key, `UK` = unique column. Nullable references allow zero or one parent; each parent can have zero or many children unless the child key is unique. Auth identity uniqueness applies to the issuer/subject pair. Category values are documented beside their VARCHAR columns in the SQL.
 
@@ -366,5 +366,12 @@ dates use DATE. Likes, membership and score keys prevent duplicate records.
 Python enums define visibility (`PUBLIC`, `PRIVATE`, `LEAGUE`), post type (`SESSION`,
 `LEAGUE_PENALTY`) and file type (`IMAGE`, `VIDEO`). SQLAlchemy validates category
 strings, while PostgreSQL stores VARCHAR without enum types or category CHECKs.
+
+Revision `20261120_01` adds the posts feature's schema: nullable
+`post.training_session_id` (UNIQUE, references `training_session`) links a SESSION post
+to the shared completed workout, and `file.post_id` / `post_comment.post_id` are indexed.
+For the posts API, `file.url` holds the private bucket location and `file.file_name` the
+generated blob name (`posts/{user_id}/{uuid}.jpg`), not the uploaded file name. See the
+README's "Workout posts feed" section for visibility, media delivery and bounds.
 
 The diagram above describes the original persistence revision. The current league schema is consolidated by revision `20261117_06`. `league_round` stores timezone-aware weekly boundaries, and `league_score` records the best daily workout per `(league_id, user_id, local_day)`. Composite foreign keys link each score to membership, the league’s round and its owner’s training session. Immutable workout calculation inputs and the processed marker live on `training_session`. See [league behavior and API](features/leagues.md) for the current rules and migration details.

@@ -306,16 +306,18 @@ CREATE TABLE session_draft (
 CREATE UNIQUE INDEX ix_session_draft_active_user ON session_draft (user_id)
     WHERE completed_session_id IS NULL;
 
--- Sprint 2 posts and leagues: persistence only; API rules remain feature work.
+-- Sprint 2 posts and leagues. The posts API shares completed workouts; leagues remain feature work.
 CREATE TABLE post (
     id BIGSERIAL PRIMARY KEY,
     text TEXT NOT NULL,
     user_id BIGINT NOT NULL REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    -- Values: PUBLIC, PRIVATE, LEAGUE
+    -- Values: PUBLIC, PRIVATE, LEAGUE, FRIENDS
     visibility VARCHAR(7) NOT NULL,
-    -- Values: SESSION, LEAGUE_PENALTY
-    type VARCHAR(14) NOT NULL
+    -- Values: SESSION, LEAGUE_PENALTY, GENERAL
+    type VARCHAR(14) NOT NULL,
+    -- Shared completed workout; set for SESSION posts, at most one post per workout
+    training_session_id BIGINT UNIQUE REFERENCES training_session(id)
 );
 
 CREATE TABLE file (
@@ -330,6 +332,7 @@ CREATE TABLE file (
     -- Size in bytes
     file_size BIGINT NOT NULL
 );
+CREATE INDEX ix_file_post_id ON file (post_id);
 
 CREATE TABLE post_like (
     post_id BIGINT NOT NULL REFERENCES post(id),
@@ -345,6 +348,21 @@ CREATE TABLE post_comment (
     comment TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+CREATE INDEX ix_post_comment_post_id ON post_comment (post_id);
+
+CREATE TABLE friendship (
+    -- One row per pair, lower account ID first, so a pair cannot be duplicated
+    user_low_id BIGINT NOT NULL REFERENCES users(id),
+    user_high_id BIGINT NOT NULL REFERENCES users(id),
+    -- Account that sent the request; one of the pair
+    requester_id BIGINT NOT NULL REFERENCES users(id),
+    -- Values: PENDING, ACCEPTED
+    status VARCHAR(8) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    accepted_at TIMESTAMP WITH TIME ZONE,
+    PRIMARY KEY (user_low_id, user_high_id)
+);
+CREATE INDEX ix_friendship_user_high_id ON friendship (user_high_id);
 
 CREATE TABLE league (
     id BIGSERIAL PRIMARY KEY,

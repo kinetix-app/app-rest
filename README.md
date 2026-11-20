@@ -37,6 +37,8 @@ Python **3.14.6**, uv **0.12.13 or newer** (Docker/CI pin: 0.12.13), FastAPI, Py
 | `app/core/auth/` | Clerk SDK token verification and current-user dependency |
 | `app/features/accounts/` | Account models, private schemas, provisioning and profile routes |
 | `app/features/training/` | Routine/exercise APIs, training persistence and exercise/media seeding |
+| `app/features/posts/` | Workout posts feed, private post images, likes and comments |
+| `app/features/social/` | Mutual friendships, friend requests and people search |
 | `docs/authentication.md` | Clerk configuration runbook and account/session contract |
 | `db-schema.sql`, `docs/data-model.md`, `docs/data-model-review.md` | Product schema reference, data-model diagram and Sprint 1 review; Alembic remains the runtime schema authority |
 | `app/db/` | ORM metadata, engine and request session dependency |
@@ -178,7 +180,7 @@ uv run --locked --no-build alembic upgrade head
 uv run --locked --no-build alembic check
 ```
 
-Feature revisions belong in `migrations/versions/`. The migration chain creates all 29 tables from `db-schema.sql`, with SQLAlchemy metadata in
+Feature revisions belong in `migrations/versions/`. The migration chain creates all 30 tables from `db-schema.sql`, with SQLAlchemy metadata in
 `app/features/accounts/`, `nutrition/`, `training/`, `goals/`, `posts/` and `leagues/`. Goals currently define persistence tables only. Nutrition provides personal food operations, and training implements routine/exercise APIs and completed-workout submission/history; ongoing recording uses owned resumable draft snapshots. Meal logging remains future feature work.
 
 Revision `20261102_01` adds posts, attached files, likes, comments, leagues, memberships,
@@ -446,6 +448,90 @@ exercise even when no set was confirmed. An unavailable routine origin returns 4
 leaves the draft intact. Browser/native acceptance is reported separately from backend
 integration verification.
 
+## Workout posts feed
+
+Accounts share a completed workout as a post with an optional caption and up to five
+images. Likes and comments are attached to the post. This increment has no follow/friend
+graph: the feed shows **every PUBLIC post by an active account plus all of the caller's
+own posts** (PUBLIC or PRIVATE). PRIVATE posts are visible only to their author. LEAGUE
+visibility and league-penalty posts are reserved for FriendsLeague and are rejected by the
+API. A blocked or deleted author's posts disappear from other accounts' feeds. Any
+post the caller cannot see returns 404 from every route, including likes, comments and
+media.
+
+| Route | Behavior |
+|---|---|
+| `GET /api/v1/posts?limit=20&before_id=` | Feed, newest first (ID descending). Limit 1–50. Pass the returned `next_before_id` as `before_id` for the next page; it is `null` on the last page. The cursor stays stable while new posts arrive. |
+| `POST /api/v1/posts` | `multipart/form-data`: `training_session_id` (required), `text` (optional, ≤2200 characters, trimmed), `visibility` (`PUBLIC` default or `PRIVATE`) and repeated `files` (0–5 JPEG/PNG/WebP images, ≤5 MiB each, ≤25 MiB per request). Returns 201 with the post. |
+| `GET /api/v1/posts/{id}` | One visible post. |
+| `DELETE /api/v1/posts/{id}` | Author only (403 otherwise). Removes the post, its likes, comments and file rows in one transaction, then deletes its blobs. The workout itself is kept and can be shared again. |
+| `PUT` / `DELETE /api/v1/posts/{id}/like` | Idempotent like/unlike. Returns `{liked, like_count}`. |
+| `GET /api/v1/posts/{id}/comments?limit=50&after_id=` | Oldest first. Limit 1–100. Pass `next_after_id` as `after_id` for the next page. |
+| `POST /api/v1/posts/{id}/comments` | JSON `{"comment": "..."}`, 1–1000 characters after trimming. Returns 201. |
+| `DELETE /api/v1/posts/{id}/comments/{comment_id}` | The comment author or the post author (403 otherwise). |
+| `GET /api/v1/posts/{id}/media/{file_id}` | Authenticated JPEG bytes with `Cache-Control: private, max-age=3600`. |
+
+Each post response contains `author {id, display_name}`, `media [{id, type, order, url}]`,
+`like_count`, `comment_count`, `liked_by_me`, `is_mine` and a `workout` summary.
+`media[].url` is the authenticated API path above; clients send their normal
+Authorization header to load images. The private bucket URL is never returned.
+
+**Workout summary.** Only the caller's own completed workout (`ended_at` set) can be
+shared, otherwise 422. A workout can have at most one post (409 on a second share,
+enforced by a UNIQUE `post.training_session_id`). The summary is computed from recorded
+history on every read: `duration_seconds` (end − start), `exercise_count`, ordered
+exercise names, `set_count`, `total_reps` and `total_volume_kg`. Volume is the sum of
+`reps × weight_kg` over recorded sets, rounded half-up to 0.01 kg and returned as decimal
+text. Completed workouts store only confirmed sets, so every recorded set counts.
+
+**Images.** Uploads are validated and normalized like profile pictures: the declared type
+must match the decoded format, images above 16 megapixels are rejected (422), EXIF
+orientation is applied, all metadata (including GPS location) is discarded and the
+result is re-encoded as JPEG, at most 1440 px on the longest side. Blobs go to the
+private `AZURE_STORAGE_POST_CONTAINER` under `posts/{user_id}/{uuid}.jpg`. Normalization
+and uploads happen before the database transaction. If an upload or the insert fails,
+the service deletes the blobs it uploaded and no post row remains. Text-only posts work
+without storage configuration. Uploading or reading images without storage returns 503.
+
+Revision `20261120_01` adds nullable `post.training_session_id` (UNIQUE, references
+`training_session`) and indexes on `file.post_id` and `post_comment.post_id`. Existing
+posts keep a NULL reference. Downgrading drops the workout link.
+
+Profile pictures are visible to every signed-in account so people with the same name can
+be told apart. `author`, comment authors and every person object carry `has_picture`; when
+true, clients load `GET /api/v1/people/{id}/picture` (authenticated JPEG,
+`Cache-Control: private, max-age=300`). Missing photos and blocked or deleted accounts
+return 404. Pictures are still stored in the private profile container and never exposed
+through a public URL.
+
+## Friends
+
+Friendship is mutual: one account sends a request and the other accepts. Each pair has a
+single `friendship` row stored with the lower account ID first (`user_low_id`,
+`user_high_id`), so duplicate or crossed requests cannot exist. `requester_id` records who
+asked, and `status` is `PENDING` or `ACCEPTED`. Requesting someone who already asked you
+accepts immediately. Only active accounts that have set a display name can be found,
+requested or listed; blocked or deleted accounts disappear from lists and searches.
+
+| Route | Behavior |
+|---|---|
+| `GET /api/v1/people?q=&limit=20` | Case-insensitive name search (at least 2 characters after trimming, wildcards are literal). Excludes the caller. Each result includes `relationship`: `none`, `outgoing`, `incoming` or `friends`. |
+| `GET /api/v1/people/{id}` | `{id, display_name, relationship, friend_count}`; `relationship` is `self` for the caller. 404 for unavailable accounts. |
+| `GET /api/v1/friends?limit=50&offset=0` | Accepted friends, ordered by name, with `since`. |
+| `GET /api/v1/friends/requests` | `{incoming, outgoing}` pending requests, newest first. |
+| `POST /api/v1/friends/requests` | JSON `{"user_id": 2}`. Returns the resulting relationship (`outgoing`, or `friends` when the other person had already asked). Idempotent. 422 for yourself, 404 for unavailable accounts. |
+| `POST /api/v1/friends/requests/{id}/accept` | Accepts an incoming request (idempotent once friends). 404 when there is no incoming request. |
+| `DELETE /api/v1/friends/{id}` | Unfriends, declines or cancels, whichever applies. Always 204. |
+
+**Friends-only posts.** Posts accept `visibility=FRIENDS`. Such posts are visible to their
+author and to the author's accepted friends while the author is active. Unfriending removes
+access immediately. `GET /api/v1/posts?scope=friends` limits the feed to the caller's own
+posts and their friends' posts; the default `scope=everyone` keeps the public feed.
+
+Revision `20261120_03` adds the `friendship` table (indexed on `user_high_id`; the primary
+key covers `user_low_id`) and documents the `FRIENDS` visibility. Downgrading turns
+friends-only posts into private posts so they never widen their audience.
+
 ## Exercise catalogue and media seeding
 
 [Issue #16](https://github.com/kinetix-app/app-rest/issues/16) adds an explicit seed operation; startup and migrations never download or import exercise data. The external [exercices repository](https://github.com/kinetix-app/exercices) contains an ExerciseDB V2 export: `index.json` maps 200 provider IDs to directories, each containing `data.json`, `video.mp4` and four JPEG variants under `images/` (`360p.jpg`, `480p.jpg`, `720p.jpg`, `1080p.jpg`). The supplied snapshot totals 200 exercises and 1,000 media files. Keep this repository and its media outside the backend Git/build context, and retain its source attribution and usage terms. The seed command reads only local assets, without provider network requests.
@@ -461,6 +547,7 @@ Copy the storage block from `.env.example` into an existing local `.env`. Azurit
 | `AZURE_STORAGE_ACCOUNT_KEY` | Backend-only shared account key; never expose a real Azure key to clients |
 | `AZURE_STORAGE_CONTAINER` | Blob container name, default `exercises` |
 | `AZURE_STORAGE_PROFILE_CONTAINER` | Separate private profile image container, default `profile-pictures`; never receives public-read mode |
+| `AZURE_STORAGE_POST_CONTAINER` | Separate private post image container, default `post-media`; images are served only through the authenticated posts API |
 | `AZURE_STORAGE_MEDIA_BASE_URL` | Client-reachable account/CDN root, without container, credentials, query or SAS; used to build stored media URLs |
 | `AZURE_STORAGE_LOCAL_PUBLIC_READ` | Default false; `.env.example` enables blob-only anonymous reads for local demonstration; forbidden in production |
 | `AZURE_STORAGE_TIMEOUT_SECONDS` | Per-upload/container operation timeout, default 30 seconds; readiness uses `DATABASE_TIMEOUT_SECONDS` |

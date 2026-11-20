@@ -47,20 +47,20 @@ class BlobStorage:
         )
         self.container = self.client.get_container_client(settings.azure_storage_container)
 
-    async def _private_profile_container(self) -> ContainerClient:
-        container = self.client.get_container_client(self.settings.azure_storage_profile_container)
+    async def _private_container(self, name: str) -> ContainerClient:
+        container = self.client.get_container_client(name)
         try:
             await container.create_container(public_access=None)
         except ResourceExistsError:
             pass
         properties = await container.get_container_properties()
         if properties.public_access:
-            raise ValueError("Profile container must be private")
+            raise ValueError(f"Container {name} must be private")
         return container
 
-    async def upload_profile_picture(self, name: str, data: bytes) -> None:
+    async def _upload_private_jpeg(self, container_name: str, name: str, data: bytes) -> None:
         async with asyncio.timeout(self.settings.azure_storage_timeout_seconds):
-            container = await self._private_profile_container()
+            container = await self._private_container(container_name)
             await container.upload_blob(
                 name,
                 data,
@@ -70,25 +70,49 @@ class BlobStorage:
                 ),
             )
 
-    async def read_profile_picture(self, name: str) -> bytes:
+    async def _read_private(self, container_name: str, name: str) -> bytes:
         async with asyncio.timeout(self.settings.azure_storage_timeout_seconds):
-            container = await self._private_profile_container()
+            container = await self._private_container(container_name)
             blob = container.get_blob_client(name)
             properties = await blob.get_blob_properties()
             if properties.size > 5 * 1024 * 1024:
-                raise ValueError("Stored profile picture exceeds limit")
+                raise ValueError("Stored private image exceeds limit")
             download = await blob.download_blob()
             return await download.readall()
 
-    async def delete_profile_picture(self, name: str) -> None:
+    async def _delete_private(self, container_name: str, name: str) -> None:
         async with asyncio.timeout(self.settings.azure_storage_timeout_seconds):
-            container = self.client.get_container_client(
-                self.settings.azure_storage_profile_container
-            )
+            container = self.client.get_container_client(container_name)
             try:
                 await container.delete_blob(name)
             except ResourceNotFoundError:
                 pass
+
+    async def upload_profile_picture(self, name: str, data: bytes) -> None:
+        await self._upload_private_jpeg(self.settings.azure_storage_profile_container, name, data)
+
+    async def read_profile_picture(self, name: str) -> bytes:
+        return await self._read_private(self.settings.azure_storage_profile_container, name)
+
+    async def delete_profile_picture(self, name: str) -> None:
+        await self._delete_private(self.settings.azure_storage_profile_container, name)
+
+    async def upload_post_media(self, name: str, data: bytes) -> None:
+        await self._upload_private_jpeg(self.settings.azure_storage_post_container, name, data)
+
+    async def read_post_media(self, name: str) -> bytes:
+        return await self._read_private(self.settings.azure_storage_post_container, name)
+
+    async def delete_post_media(self, name: str) -> None:
+        await self._delete_private(self.settings.azure_storage_post_container, name)
+
+    def post_media_blob_url(self, name: str) -> str:
+        """Private bucket location stored for reference; clients read through the API."""
+        assert self.settings.azure_storage_account_url is not None
+        return (
+            f"{self.settings.azure_storage_account_url.rstrip('/')}/"
+            f"{self.settings.azure_storage_post_container}/{quote(name, safe='/')}"
+        )
 
     async def close(self) -> None:
         await self.client.close()

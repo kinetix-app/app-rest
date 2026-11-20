@@ -14,11 +14,13 @@ class PostVisibility(StrEnum):
     PUBLIC = "PUBLIC"
     PRIVATE = "PRIVATE"
     LEAGUE = "LEAGUE"
+    FRIENDS = "FRIENDS"
 
 
 class PostType(StrEnum):
     SESSION = "SESSION"
     LEAGUE_PENALTY = "LEAGUE_PENALTY"
+    GENERAL = "GENERAL"
 
 
 class FileType(StrEnum):
@@ -39,13 +41,21 @@ post = sa.Table(
         "visibility",
         sa.Enum(PostVisibility, native_enum=False, create_constraint=False, validate_strings=True),
         nullable=False,
-        comment="Values: PUBLIC, PRIVATE, LEAGUE",
+        comment="Values: PUBLIC, PRIVATE, LEAGUE, FRIENDS",
     ),
     sa.Column(
         "type",
         sa.Enum(PostType, native_enum=False, create_constraint=False, validate_strings=True),
         nullable=False,
-        comment="Values: SESSION, LEAGUE_PENALTY",
+        comment="Values: SESSION, LEAGUE_PENALTY, GENERAL",
+    ),
+    sa.Column(
+        "training_session_id",
+        sa.BigInteger(),
+        sa.ForeignKey("training_session.id"),
+        nullable=True,
+        unique=True,
+        comment="Shared completed workout; set for SESSION posts, at most one post per workout",
     ),
 )
 
@@ -68,6 +78,7 @@ file = sa.Table(
     sa.Column("file_name", sa.Text(), nullable=False),
     sa.Column("file_size", sa.BigInteger(), nullable=False, comment="Size in bytes"),
 )
+sa.Index("ix_file_post_id", file.c.post_id)
 
 post_like = sa.Table(
     "post_like",
@@ -90,3 +101,4 @@ post_comment = sa.Table(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
 )
+sa.Index("ix_post_comment_post_id", post_comment.c.post_id)

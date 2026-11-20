@@ -15,6 +15,8 @@ from app.features.nutrition.router import (
 from app.features.nutrition.router import (
     router as nutrition_router,
 )
+from app.features.posts.router import router as posts_router
+from app.features.social.router import friends_router, people_router
 from app.features.training.router import router as training_router
 
 api_router = APIRouter(prefix="/api/v1")
@@ -31,3 +33,6 @@ api_router.include_router(recipe_router)
 api_router.include_router(training_router)
 api_router.include_router(nutrition_goal_router)
 api_router.include_router(meal_router)
+api_router.include_router(posts_router)
+api_router.include_router(friends_router)
+api_router.include_router(people_router)
