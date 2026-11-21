@@ -37,7 +37,7 @@ async def training_api(integration_url):
     schema = "training_" + uuid4().hex
     admin = create_async_engine(integration_url)
     engine = create_async_engine(
-        integration_url, connect_args={"server_settings": {"search_path": schema}}
+        integration_url, connect_args={"options": f"-csearch_path={schema}"}
     )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
@@ -1453,10 +1453,10 @@ async def test_private_routine_cover_isolation_replacement_and_rollback(training
     settings = Settings(
         _env_file=None,
         app_env="test",
-        postgres_password=SecretStr("unused"),
-        azure_storage_account_name=account,
-        azure_storage_account_url=url,
-        azure_storage_account_key=SecretStr(key),
+        database_url="postgresql://unused:unused@localhost/unused",
+        azure_storage_connection_string=(
+            f"AccountName={account};AccountKey={key};BlobEndpoint={url}"
+        ),
         azure_storage_media_base_url=url,
         azure_storage_profile_container="test-routines-" + uuid4().hex,
     )
@@ -1611,10 +1611,10 @@ async def test_multipart_routine_create_image_is_atomic_and_private(training_api
     settings = Settings(
         _env_file=None,
         app_env="test",
-        postgres_password=SecretStr("unused"),
-        azure_storage_account_name=account,
-        azure_storage_account_url=url,
-        azure_storage_account_key=SecretStr(key),
+        database_url="postgresql://unused:unused@localhost/unused",
+        azure_storage_connection_string=(
+            f"AccountName={account};AccountKey={key};BlobEndpoint={url}"
+        ),
         azure_storage_media_base_url=url,
         azure_storage_profile_container="test-routine-create-" + uuid4().hex,
     )

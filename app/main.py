@@ -16,8 +16,10 @@ from app.core.auth.clerk import ClerkVerifier
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.core.storage.azure import BlobStorage
+from app.core.upload_limit import UploadLimit
 from app.db.session import create_database_engine
 from app.features.accounts.upload_limit import ProfileUploadLimit
+from app.features.posts.media import MAX_POST_REQUEST_BYTES, POST_REQUEST_LIMIT_DETAIL, POSTS_PATH
 
 logger = logging.getLogger("kinetix.requests")
 
@@ -35,7 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.clerk_verifier = ClerkVerifier(configuration)
         application.state.blob_storage = None
         try:
-            if configuration.azure_storage_account_url:
+            if configuration.azure_storage_connection_string:
                 application.state.blob_storage = BlobStorage(configuration)
             yield
         finally:
@@ -46,7 +48,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await engine.dispose()
 
     application = FastAPI(title="Kinetix API", version="0.1.0", lifespan=lifespan)
+    # Picture and routine uploads keep their own limiter; posts use the generic one.
     application.add_middleware(ProfileUploadLimit)
+    application.add_middleware(
+        UploadLimit,
+        path=POSTS_PATH,
+        max_bytes=MAX_POST_REQUEST_BYTES,
+        detail=POST_REQUEST_LIMIT_DETAIL,
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=configuration.cors_allowed_origins,

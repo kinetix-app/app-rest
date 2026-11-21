@@ -10,7 +10,8 @@ Update the relevant page whenever a feature changes.
 | [Accounts](accounts.md) | Lazy account/profile provisioning, account read and profile update APIs are implemented. |
 | [Goals](goals.md) | Physical-goal and measurement persistence exists; no service or API exposes it. Nutrition goals are in Nutrition. |
 | [Nutrition](nutrition.md) | Owned foods/recipes, nutrition goals, meal logging and daily summaries have API and persistence. |
-| Posts and leagues | Persistence only: eight tables, Python category enums and migration `20261102_01`; no social or league API/business rules. |
+| Posts | Persistence only; no social API/business rules. |
+| [FriendsLeague](leagues.md) | Authenticated membership/invitations, fixed integer scoring, round/general standings, persisted results and member acknowledgements. |
 | [Training](training.md) | Catalogue/routines, completed sessions, idempotency, resumable drafts, history and media seeding are implemented. |
 
 The [backend README](../../README.md) remains the source for setup and runtime commands.

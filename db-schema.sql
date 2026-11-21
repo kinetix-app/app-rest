@@ -79,7 +79,9 @@ CREATE TABLE food (
     protein DECIMAL(8,2) NOT NULL,
     carbohydrates DECIMAL(8,2) NOT NULL,
     fats DECIMAL(8,2) NOT NULL,
-    barcode VARCHAR(50)
+    barcode VARCHAR(50),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    catalog_key VARCHAR(100) UNIQUE
 );
 
 -- Recipes with their declared serving count.
@@ -89,7 +91,8 @@ CREATE TABLE recipe (
     name VARCHAR(150) NOT NULL,
     description TEXT,
     instructions TEXT,
-    servings INTEGER NOT NULL DEFAULT 1
+    servings INTEGER NOT NULL DEFAULT 1,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- Recipe ingredients and their quantities in grams.
@@ -224,7 +227,14 @@ CREATE TABLE training_session (
     notes TEXT,
     client_session_id UUID,
     payload_fingerprint VARCHAR(64),
-    UNIQUE (user_id, client_session_id)
+    -- Formula version marks processed sessions, even when the score is NULL.
+    league_score NUMERIC(40,0),
+    league_volume_kg_reps NUMERIC(40,6),
+    league_duration_us BIGINT,
+    league_body_weight_kg NUMERIC(10,6),
+    league_formula_version VARCHAR(100),
+    UNIQUE (user_id, client_session_id),
+    UNIQUE (id, user_id)
 );
 
 -- Exercises actually recorded in a session, independent of template edits.
@@ -296,16 +306,18 @@ CREATE TABLE session_draft (
 CREATE UNIQUE INDEX ix_session_draft_active_user ON session_draft (user_id)
     WHERE completed_session_id IS NULL;
 
--- Sprint 2 posts and leagues: persistence only; API rules remain feature work.
+-- Sprint 2 posts and leagues. The posts API shares completed workouts; leagues remain feature work.
 CREATE TABLE post (
     id BIGSERIAL PRIMARY KEY,
     text TEXT NOT NULL,
     user_id BIGINT NOT NULL REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    -- Values: PUBLIC, PRIVATE, LEAGUE
+    -- Values: PUBLIC, PRIVATE, LEAGUE, FRIENDS
     visibility VARCHAR(7) NOT NULL,
-    -- Values: SESSION, LEAGUE_PENALTY
-    type VARCHAR(14) NOT NULL
+    -- Values: SESSION, LEAGUE_PENALTY, GENERAL
+    type VARCHAR(14) NOT NULL,
+    -- Shared completed workout; set for SESSION posts, at most one post per workout
+    training_session_id BIGINT UNIQUE REFERENCES training_session(id)
 );
 
 CREATE TABLE file (
@@ -320,6 +332,7 @@ CREATE TABLE file (
     -- Size in bytes
     file_size BIGINT NOT NULL
 );
+CREATE INDEX ix_file_post_id ON file (post_id);
 
 CREATE TABLE post_like (
     post_id BIGINT NOT NULL REFERENCES post(id),
@@ -335,33 +348,86 @@ CREATE TABLE post_comment (
     comment TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+CREATE INDEX ix_post_comment_post_id ON post_comment (post_id);
+
+CREATE TABLE friendship (
+    -- One row per pair, lower account ID first, so a pair cannot be duplicated
+    user_low_id BIGINT NOT NULL REFERENCES users(id),
+    user_high_id BIGINT NOT NULL REFERENCES users(id),
+    -- Account that sent the request; one of the pair
+    requester_id BIGINT NOT NULL REFERENCES users(id),
+    -- Values: PENDING, ACCEPTED
+    status VARCHAR(8) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    accepted_at TIMESTAMP WITH TIME ZONE,
+    PRIMARY KEY (user_low_id, user_high_id)
+);
+CREATE INDEX ix_friendship_user_high_id ON friendship (user_high_id);
 
 CREATE TABLE league (
     id BIGSERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    created_by BIGINT NOT NULL REFERENCES users(id)
+    created_by BIGINT NOT NULL REFERENCES users(id),
+    timezone VARCHAR(100),
+    picture_blob_name TEXT,
+    description TEXT
+);
+
+-- Timezone-aware week boundaries preserve active round and result identities.
+CREATE TABLE league_round (
+    id BIGSERIAL PRIMARY KEY,
+    league_id BIGINT NOT NULL REFERENCES league(id),
+    start_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    UNIQUE (league_id, start_at),
+    UNIQUE (league_id, id)
+);
+
+CREATE TABLE league_result (
+    id BIGSERIAL PRIMARY KEY,
+    league_id BIGINT NOT NULL,
+    round_id BIGINT NOT NULL UNIQUE,
+    snapshot JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    UNIQUE (league_id, id),
+    FOREIGN KEY (league_id, round_id) REFERENCES league_round (league_id, id)
 );
 
 CREATE TABLE league_member (
     user_id BIGINT NOT NULL REFERENCES users(id),
     league_id BIGINT NOT NULL REFERENCES league(id),
     joined_date DATE DEFAULT CURRENT_DATE NOT NULL,
-    PRIMARY KEY (user_id, league_id)
+    joined_at TIMESTAMP WITH TIME ZONE,
+    -- Values: admin, member. NULL denotes an unconverted legacy membership.
+    role VARCHAR(16),
+    last_seen_result_id BIGINT,
+    PRIMARY KEY (user_id, league_id),
+    FOREIGN KEY (league_id, last_seen_result_id) REFERENCES league_result (league_id, id)
 );
 
-CREATE TABLE league_round (
-    id BIGSERIAL PRIMARY KEY,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    league_id BIGINT NOT NULL REFERENCES league(id)
-);
-
-CREATE TABLE league_score (
+-- Only hashes of temporary invitation tokens are stored.
+CREATE TABLE league_invitation (
+    token_hash VARCHAR(64) PRIMARY KEY,
     league_id BIGINT NOT NULL REFERENCES league(id),
-    user_id BIGINT NOT NULL REFERENCES users(id),
-    round_id BIGINT NOT NULL REFERENCES league_round(id),
-    score INTEGER NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    PRIMARY KEY (league_id, user_id, round_id)
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+-- One winner per member and league-local start date with source provenance.
+CREATE TABLE league_score (
+    league_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    round_id BIGINT NOT NULL,
+    score NUMERIC(40,0) NOT NULL,
+    local_day DATE NOT NULL,
+    session_id BIGINT NOT NULL,
+    volume_kg_reps NUMERIC(40,6) NOT NULL,
+    duration_us BIGINT NOT NULL,
+    body_weight_kg NUMERIC(10,6) NOT NULL,
+    ended_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    formula_version VARCHAR(100) NOT NULL,
+    PRIMARY KEY (league_id, user_id, local_day),
+    FOREIGN KEY (user_id, league_id) REFERENCES league_member (user_id, league_id),
+    FOREIGN KEY (league_id, round_id) REFERENCES league_round (league_id, id),
+    FOREIGN KEY (session_id, user_id) REFERENCES training_session (id, user_id)
 );

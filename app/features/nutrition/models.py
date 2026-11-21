@@ -18,6 +18,9 @@ food = sa.Table(
     sa.Column("carbohydrates", sa.Numeric(8, 2), nullable=False),
     sa.Column("fats", sa.Numeric(8, 2), nullable=False),
     sa.Column("barcode", sa.String(50), nullable=True),
+    sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
+    sa.Column("catalog_key", sa.String(100), nullable=True),
+    sa.UniqueConstraint("catalog_key", name="food_catalog_key_key"),
 )
 
 recipe = sa.Table(
@@ -29,6 +32,7 @@ recipe = sa.Table(
     sa.Column("description", sa.Text(), nullable=True),
     sa.Column("instructions", sa.Text(), nullable=True),
     sa.Column("servings", sa.Integer(), nullable=False, server_default=sa.text("1")),
+    sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
 )
 
 recipe_ingredient = sa.Table(

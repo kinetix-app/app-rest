@@ -1,6 +1,6 @@
 """Sprint 2 persistence and additive upgrades in an isolated test-owned schema."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import pytest
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.features.leagues.models import league, league_member, league_round, league_score
 from app.features.posts.models import FileType, PostType, PostVisibility, file, post
+from app.features.training.models import training_session
 from tests.integration.test_migrations import ROOT, migrate
 
 pytestmark = pytest.mark.integration
@@ -81,14 +82,41 @@ async def test_posts_leagues_upgrade_persistence_and_downgrade(integration_url):
                     league_round.insert()
                     .values(
                         league_id=league_id,
-                        start_date=date(2026, 11, 2),
-                        end_date=date(2026, 11, 8),
+                        start_at=datetime(2026, 11, 2, tzinfo=UTC),
+                        end_at=datetime(2026, 11, 9, tzinfo=UTC),
                     )
                     .returning(league_round.c.id)
                 )
+                start_at = datetime(2026, 11, 4, 12, tzinfo=UTC)
+                ended_at = datetime(2026, 11, 4, 13, tzinfo=UTC)
+                session_id = await connection.scalar(
+                    training_session.insert()
+                    .values(
+                        user_id=user_id,
+                        activity_type="gym",
+                        started_at=start_at,
+                        ended_at=ended_at,
+                        league_score=12,
+                        league_volume_kg_reps=960,
+                        league_duration_us=3600000000,
+                        league_body_weight_kg=80,
+                        league_formula_version="test-v1",
+                    )
+                    .returning(training_session.c.id)
+                )
                 await connection.execute(
                     league_score.insert().values(
-                        league_id=league_id, user_id=user_id, round_id=round_id, score=12
+                        league_id=league_id,
+                        user_id=user_id,
+                        round_id=round_id,
+                        score=12,
+                        local_day=date(2026, 11, 4),
+                        session_id=session_id,
+                        volume_kg_reps=960,
+                        duration_us=3600000000,
+                        body_weight_kg=80,
+                        ended_at=ended_at,
+                        formula_version="test-v1",
                     )
                 )
                 assert await connection.scalar(select(post.c.visibility)) == PostVisibility.PRIVATE

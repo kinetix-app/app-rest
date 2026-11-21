@@ -93,12 +93,11 @@ def test_validate_only_and_failed_cli_do_not_report_success(exercise_export, mon
 @pytest.mark.parametrize(
     "options",
     [
-        {"azure_storage_account_url": "http://localhost:10000/account"},
+        {"azure_storage_connection_string": "secret"},
         {"azure_storage_container": "invalid--name"},
         {
-            "azure_storage_account_url": "https://example.test/?token=secret",
-            "azure_storage_account_key": SecretStr("secret"),
-            "azure_storage_media_base_url": "https://example.test",
+            "azure_storage_connection_string": SecretStr("secret"),
+            "azure_storage_media_base_url": "https://example.test/?token=secret",
         },
         {
             "app_env": "production",
@@ -109,7 +108,11 @@ def test_validate_only_and_failed_cli_do_not_report_success(exercise_export, mon
     ],
 )
 def test_storage_configuration_rejects_partial_unsafe_or_public_production_settings(options):
-    settings_values = {"_env_file": None, "postgres_password": SecretStr("test"), **options}
+    settings_values = {
+        "_env_file": None,
+        "database_url": "postgresql://user:test@localhost/test",
+        **options,
+    }
     with pytest.raises(ValidationError):
         Settings(**settings_values)
 
@@ -122,7 +125,7 @@ async def test_storage_lifecycle_readiness_and_failure_recovery(settings, monkey
     from app.main import create_app
 
     storage = AsyncMock()
-    settings.azure_storage_account_url = "http://storage.example"
+    settings.azure_storage_connection_string = SecretStr("mocked")
     monkeypatch.setattr("app.main.BlobStorage", lambda _: storage)
     # Isolate storage readiness from the deliberately unavailable test DB.
     app = create_app(settings)
@@ -146,9 +149,9 @@ async def test_storage_lifecycle_readiness_and_failure_recovery(settings, monkey
 
 @pytest.mark.anyio
 async def test_mutated_asset_is_not_uploaded(settings, exercise_export):
-    settings.azure_storage_account_url = "http://localhost:10000/account"
-    settings.azure_storage_account_name = "account"
-    settings.azure_storage_account_key = SecretStr("a2V5")
+    settings.azure_storage_connection_string = SecretStr(
+        "AccountName=account;AccountKey=a2V5;BlobEndpoint=http://localhost:10000/account"
+    )
     storage = BlobStorage(settings)
     storage.container = AsyncMock()
     (item,) = load_dataset(exercise_export)
@@ -165,9 +168,9 @@ async def test_mutated_asset_is_not_uploaded(settings, exercise_export):
 
 @pytest.mark.anyio
 async def test_explicit_account_name_supports_compose_hostname(settings):
-    settings.azure_storage_account_name = "kinetixlocal"
-    settings.azure_storage_account_url = "http://azurite:10000/kinetixlocal"
-    settings.azure_storage_account_key = SecretStr("a2V5")
+    settings.azure_storage_connection_string = SecretStr(
+        "AccountName=kinetixlocal;AccountKey=a2V5;BlobEndpoint=http://azurite:10000/kinetixlocal"
+    )
     storage = BlobStorage(settings)
     try:
         assert storage.client.account_name == "kinetixlocal"

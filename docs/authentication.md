@@ -160,7 +160,7 @@ uv lock --check
 uv run --locked --no-build ruff check .
 uv run --locked --no-build ruff format --check .
 docker compose --profile test up -d --wait postgres-test
-TEST_DATABASE_URL=postgresql+asyncpg://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test uv run --locked --no-build pytest
+TEST_DATABASE_URL=postgresql://fitness_test:fitness_test_local@127.0.0.1:55432/fitness_test uv run --locked --no-build pytest
 ```
 
 Tests use locally generated RSA keys and mock the SDK’s Backend API HTTP transport, isolating its key cache per test; PostgreSQL integration tests exercise real migrations, concurrent provisioning, rollback, account denial, profile persistence and isolation in the dedicated `_test` database. These checks establish backend behavior, not actual Clerk/native integration. Never send real provider credentials or fitness data to test fixtures.

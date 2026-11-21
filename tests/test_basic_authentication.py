@@ -23,7 +23,7 @@ def authorization(username="alice@example.test", password="local-test-only"):
 def basic_settings(settings):
     return Settings(
         _env_file=None,
-        postgres_password=settings.postgres_password,
+        database_url=settings.database_url,
         auth_mode="basic",
         basic_auth_users={
             "alice@example.test": SecretStr("local-test-only"),
@@ -79,7 +79,12 @@ def test_production_rejects_basic_even_if_settings_are_mutated(basic_settings):
 )
 def test_invalid_basic_configuration_fails_at_startup(overrides, message):
     with pytest.raises(ValidationError, match=message):
-        Settings(_env_file=None, postgres_password="test-only", auth_mode="basic", **overrides)
+        Settings(
+            _env_file=None,
+            database_url="postgresql://user:test-only@127.0.0.1/db",
+            auth_mode="basic",
+            **overrides,
+        )
 
 
 @pytest.mark.anyio
@@ -124,7 +129,7 @@ async def test_basic_dependency_returns_identity_and_denies_wrong_scheme(basic_s
 def test_auth_mode_defaults_follow_environment(environment):
     settings = Settings(
         _env_file=None,
-        postgres_password="test-only",
+        database_url="postgresql://user:test-only@127.0.0.1/db",
         app_env=environment,
         clerk_issuer="https://kinetix-test.clerk.accounts.dev",
         clerk_secret_key="sk_test_backend_only",
@@ -133,15 +138,15 @@ def test_auth_mode_defaults_follow_environment(environment):
 
 
 def test_unconfigured_basic_mode_accepts_no_accounts():
-    settings = Settings(_env_file=None, postgres_password="test-only")
+    settings = Settings(_env_file=None, database_url="postgresql://user:test-only@127.0.0.1/db")
     header = authorization()
     with pytest.raises(InvalidCredentials):
         verify_basic(header, settings)
 
 
-def test_empty_mode_and_database_url_use_defaults():
+def test_empty_mode_uses_default():
     settings = Settings(
-        _env_file=None, postgres_password="test-only", auth_mode="", database_url=""
+        _env_file=None, database_url="postgresql://user:test-only@127.0.0.1/db", auth_mode=""
     )
     assert settings.auth_mode == "basic"
     assert settings.database_connection_url().host == "127.0.0.1"

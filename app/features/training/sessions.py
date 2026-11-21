@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
+from app.features.leagues.scoring import credit_completed_session
 from app.features.training.errors import IdempotencyConflict, InvalidSelection, TrainingNotFound
 from app.features.training.models import (
     exercise,
@@ -344,6 +345,7 @@ async def create_session(
             identifier = await _concurrent_session_id(session, user_id, data, accepted_fingerprints)
         else:
             await _insert_session_exercises(session, identifier, data)
+            await credit_completed_session(session, user_id, identifier)
         result = await get_session(session, user_id, identifier, unit)
         if commit:
             await session.commit()

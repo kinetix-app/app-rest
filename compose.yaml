@@ -42,21 +42,9 @@ services:
       target: runtime
     env_file: .env
     environment:
-      # Use the Compose database, even when .env has a host DATABASE_URL override.
-      DATABASE_URL: ""
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      # Match PostgreSQL when its credentials are overridden from the shell.
-      POSTGRES_USER: ${POSTGRES_USER:-fitness}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-fitness}
-      AZURE_STORAGE_ACCOUNT_NAME: ${AZURE_STORAGE_ACCOUNT_NAME:-kinetixlocal}
-      AZURE_STORAGE_ACCOUNT_URL: ${AZURE_STORAGE_COMPOSE_ACCOUNT_URL:-http://azurite:10000/kinetixlocal}
-      AZURE_STORAGE_ACCOUNT_KEY: ${AZURE_STORAGE_ACCOUNT_KEY:-a2luZXRpeC1sb2NhbC1kZXZlbG9wbWVudC1vbmx5LWtleQ==}
-      AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-exercises}
-      AZURE_STORAGE_PROFILE_CONTAINER: ${AZURE_STORAGE_PROFILE_CONTAINER:-profile-pictures}
-      AZURE_STORAGE_MEDIA_BASE_URL: ${AZURE_STORAGE_MEDIA_BASE_URL:-http://127.0.0.1:10000/kinetixlocal}
-      AZURE_STORAGE_LOCAL_PUBLIC_READ: ${AZURE_STORAGE_LOCAL_PUBLIC_READ:-true}
+      # Local services use Docker DNS and internal ports.
+      DATABASE_URL: ${DATABASE_COMPOSE_URL:-}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_COMPOSE_CONNECTION_STRING:-}
     ports:
       - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     depends_on:
