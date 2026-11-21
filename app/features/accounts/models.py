@@ -50,6 +50,10 @@ class Profile(Base):
     display_name: Mapped[str | None] = mapped_column(String(100))
     timezone: Mapped[str | None] = mapped_column(String(100))
     age: Mapped[int | None] = mapped_column(Integer)
+    sex: Mapped[str | None] = mapped_column(String(6), comment="Values: male, female")
+    activity_level: Mapped[str | None] = mapped_column(
+        String(16), comment="Values: sedentary, light, moderate, high, very_high"
+    )
     height_cm: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     measurement_system: Mapped[str | None] = mapped_column(
