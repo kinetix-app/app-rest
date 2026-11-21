@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.features.accounts.router import auth_router
 from app.features.accounts.router import router as accounts_router
+from app.features.goals.progress_router import router as progress_router
 from app.features.goals.router import router as objective_router
 from app.features.leagues.results_router import router as league_results_router
 from app.features.leagues.router import invitation_router
@@ -28,6 +29,7 @@ api_router.include_router(invitation_router)
 api_router.include_router(accounts_router)
 api_router.include_router(auth_router)
 api_router.include_router(objective_router)
+api_router.include_router(progress_router)
 api_router.include_router(nutrition_router)
 api_router.include_router(recipe_router)
 api_router.include_router(training_router)

@@ -63,9 +63,12 @@ async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
         assert snap.league_score == 10
         assert snap.league_volume_kg_reps == 800
         assert snap.league_body_weight_kg == 80
-        await session.execute(
-            sa.update(Profile).where(Profile.user_id == user).values(weight_kg=40)
-        )
+    measurement = await client.post(
+        "/api/v1/me/body-measurements",
+        json={"request_id": str(uuid4()), "date": now.date().isoformat(), "weight_kg": "40"},
+        auth=auth,
+    )
+    assert measurement.status_code == 201, measurement.text
     assert (await client.post("/api/v1/sessions", json=payload, auth=auth)).status_code in (
         200,
         201,
@@ -83,6 +86,20 @@ async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
         assert snap.league_score == 10
         assert snap.league_body_weight_kg == 80
         assert await session.scalar(sa.select(sa.func.count()).select_from(league_score)) == 1
+
+    next_session = await client.post(
+        "/api/v1/sessions", json=payload | {"client_session_id": str(uuid4())}, auth=auth
+    )
+    assert next_session.status_code == 201, next_session.text
+    async with sessions() as session:
+        weights_and_scores = (
+            await session.execute(
+                sa.select(training_session.c.league_body_weight_kg, training_session.c.league_score)
+                .where(training_session.c.user_id == user)
+                .order_by(training_session.c.id)
+            )
+        ).all()
+        assert weights_and_scores == [(80, 10), (40, 20)]
 
 
 async def test_replacement_cutoffs_and_concurrency(league_api):  # noqa: F811

@@ -1,8 +1,7 @@
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
-from app.features.accounts.service import AccountDenied, require_active
+from app.features.accounts.service import AccountDenied, lock_active_user, require_active
 from app.features.goals.models import AccountObjective
 from app.features.goals.schemas import ObjectivePut, ObjectiveResponse
 
@@ -20,10 +19,7 @@ async def set_objective(
     session: AsyncSession, user_id: int, value: ObjectivePut
 ) -> ObjectiveResponse:
     try:
-        user = await session.scalar(select(User).where(User.id == user_id).with_for_update())
-        if user is None:
-            raise AccountDenied
-        require_active(user)
+        await lock_active_user(session, user_id)
         selected = await session.get(AccountObjective, user_id)
         if selected is None:
             session.add(AccountObjective(user_id=user_id, objective=value.objective))

@@ -268,10 +268,13 @@ CREATE TABLE physical_goal (
     -- Values: build_muscle, lose_fat, gain_weight, maintain_weight.
     -- Target metric/unit and interpretation remain pending DEC-01.
     goal_type VARCHAR(50) NOT NULL,
-    target_value DECIMAL(8,2) NOT NULL,
+    target_value DECIMAL(12,6) NOT NULL,
     start_date DATE NOT NULL DEFAULT CURRENT_DATE,
     target_date DATE,
-    completed_at TIMESTAMP
+    completed_at TIMESTAMP,
+    -- Values: weight_kg (kg). NULL preserves legacy targets of unspecified metric.
+    target_metric VARCHAR(16),
+    UNIQUE (user_id, goal_type, target_metric)
 );
 
 -- User-owned dated observations for overall evolution and physical-goal progress.
@@ -280,14 +283,18 @@ CREATE TABLE body_measurement (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
     date DATE NOT NULL DEFAULT CURRENT_DATE,
-    weight_kg DECIMAL(5,2),
+    weight_kg DECIMAL(10,6),
     body_fat_percentage DECIMAL(5,2),
-    muscle_mass_kg DECIMAL(5,2),
+    muscle_mass_kg DECIMAL(10,6),
     waist_cm DECIMAL(5,2),
     chest_cm DECIMAL(5,2),
     arm_cm DECIMAL(5,2),
-    thigh_cm DECIMAL(5,2)
+    thigh_cm DECIMAL(5,2),
+    height_cm DECIMAL(5,2),
+    request_id UUID,
+    UNIQUE (user_id, request_id)
 );
+CREATE INDEX ix_body_measurement_user_id_date_id ON body_measurement (user_id, date, id);
 
 -- Imported global catalogue identities; manual and user-owned exercises are independent.
 CREATE UNIQUE INDEX ix_exercise_catalogue_source_external_id ON exercise (source, external_id)

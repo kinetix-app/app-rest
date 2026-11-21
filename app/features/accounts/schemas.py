@@ -1,9 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, field_validator
+
+HeightCm = Annotated[Decimal, Field(gt=0, le=300, decimal_places=2)]
+BodyMassKg = Annotated[Decimal, Field(gt=0, le=1000, decimal_places=6)]
 
 
 class ProfilePatch(BaseModel):
@@ -13,8 +16,8 @@ class ProfilePatch(BaseModel):
     timezone: str | None = Field(default=None, min_length=1, max_length=100)
 
     age: int | None = Field(default=None, ge=1, le=120, strict=True)
-    height_cm: Decimal | None = Field(default=None, gt=0, le=300, decimal_places=2)
-    weight_kg: Decimal | None = Field(default=None, gt=0, le=1000, decimal_places=6)
+    height_cm: HeightCm | None = None
+    weight_kg: BodyMassKg | None = None
     measurement_system: Literal["metric", "imperial"] | None = None
     picture_url: str | None = Field(default=None, max_length=2048)
 

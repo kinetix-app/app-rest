@@ -1,32 +1,32 @@
-# Physical goals and measurements
+# Body measurements and weight targets
 
-## Current state
+Profile → Progress records private date-only measurements. A check-in can contain
+any combination of height (cm), weight and muscle mass (kg), body-fat percentage,
+and waist, chest, arm and thigh circumferences (cm). The API stores decimals in
+canonical units. Height, circumference and percentage retain two decimal places.
+Weight and muscle mass retain six. The app displays measurements using the account
+preference. The profile timezone defines today, with UTC as the fallback.
 
-This feature is **persistence only**. `app/features/goals/models.py` maps
-`physical_goal` and `body_measurement`; the initial product schema/migration creates the
-tables. There is no goals router, service, request/response schema, calculation or API
-consumer for these records.
+- `GET /api/v1/me/body-measurements` returns `{ "items": [...] }` ordered by date and
+  ID, oldest first. Each item has a date, ID and nullable canonical decimal string
+  fields. On same-date check-ins the chart uses the latest observation for the
+  selected metric, with all entries available in history.
+- `POST /api/v1/me/body-measurements` accepts a client UUID `request_id`, a
+  `YYYY-MM-DD` date on or before today and at least one measurement. A replay with
+  the same UUID and values returns the existing measurement. A changed payload
+  with the same UUID returns 409. Omitted or null metrics remain absent.
+- Height and weight are synced independently to the profile from the latest
+  dated value. Direct profile updates log changed values for the profile's
+  current date. Explicit clears remove the current profile value and keep
+  history. An older backfill leaves newer profile values in place. Existing
+  completed league scores keep the weight recorded in their scoring snapshot.
 
-The current model contains a proposed `goal_type` vocabulary (`build_muscle`, `lose_fat`,
-`gain_weight`, `maintain_weight`), a numeric `target_value`, dates, and optional completion
-time. Measurements store weight, body-fat percentage, muscle mass and circumferences.
-The target metric/unit and interpretation of those values are unresolved, so the current
-columns do not define usable progress semantics.
+`GET /api/v1/me/physical-target` returns the current `objective` and a nullable
+`target` with `weight_kg` and optional `target_date`. `PUT` accepts the expected
+`objective`, a weight in kg and an optional `YYYY-MM-DD` target date. A stale
+objective returns 409. Each objective has its own user-selected weight target.
+Measurements, nutrition targets, and goal expectations are managed separately.
 
-Nutrition targets are separate and are implemented under [Nutrition](nutrition.md); they
-must not be mistaken for physical-goal tracking.
-
-## Code and evidence
-
-- Persistence metadata: `app/features/goals/models.py`.
-- Product schema and review: `db-schema.sql`, [data model](../data-model.md), and
-  [data-model review](../data-model-review.md).
-- There are no goals route/service/schema tests because no runtime API behavior exists.
-- Frontend status: [mobile goals](https://github.com/kinetix-app/app/blob/master/docs/features/goals.md).
-
-## Required before API delivery
-
-Agree target units/metrics, goal progress and completion rules, measurement history
-semantics, and any timezone/date behavior. Then define validation, ownership-scoped
-operations and deterministic calculations before treating these tables as a delivered
-feature.
+Revision `20261121_01` preserves earlier observations, profiles, and targets.
+Legacy targets retain their unspecified metric. Review the migration before
+downgrading, since the downgrade rejects data it cannot represent.
