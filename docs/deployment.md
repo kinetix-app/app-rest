@@ -1,9 +1,11 @@
 # Production deployment
 
 Run the repository's runtime image with a managed PostgreSQL database and an Azure
-Blob Storage account. The image starts Uvicorn on port 8000. Configure HTTPS at the
-hosting platform's ingress and route traffic to that port. The checked-in Compose
-file is for local development and starts PostgreSQL and Azurite.
+Blob Storage account. The image listens on the platform's `PORT` when set and
+defaults to 8000. On Render, set the **Health Check Path** to `/health/ready`.
+Configure HTTPS at the hosting platform's ingress and route traffic to the
+listening port. The checked-in Compose file is for local development and starts
+PostgreSQL and Azurite.
 
 ## Environment and secrets
 

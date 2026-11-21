@@ -25,5 +25,5 @@ COPY migrations ./migrations
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=6s --start-period=10s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).close()"]
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    CMD ["python", "-c", "import os, urllib.request; port = int(os.getenv('PORT') or '8000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health/ready', timeout=5).close()"]
+CMD ["sh", "-c", "exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port \"${PORT:-8000}\" --no-access-log"]
