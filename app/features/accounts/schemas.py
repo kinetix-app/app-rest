@@ -16,6 +16,8 @@ class ProfilePatch(BaseModel):
     timezone: str | None = Field(default=None, min_length=1, max_length=100)
 
     age: int | None = Field(default=None, ge=1, le=120, strict=True)
+    sex: Literal["male", "female"] | None = None
+    activity_level: Literal["sedentary", "light", "moderate", "high", "very_high"] | None = None
     height_cm: HeightCm | None = None
     weight_kg: BodyMassKg | None = None
     measurement_system: Literal["metric", "imperial"] | None = None
@@ -48,6 +50,8 @@ class ProfileResponse(BaseModel):
     display_name: str | None
     timezone: str | None
     age: int | None
+    sex: Literal["male", "female"] | None
+    activity_level: Literal["sedentary", "light", "moderate", "high", "very_high"] | None
     height_cm: Decimal | None
     weight_kg: Decimal | None
     measurement_system: Literal["metric", "imperial"] | None

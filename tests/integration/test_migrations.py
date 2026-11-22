@@ -453,7 +453,7 @@ async def test_onboarding_upgrade_preserves_legacy_profile_and_leaves_setup_expl
                 assert target[-1] is None
                 saved = (await connection.execute(text("SELECT * FROM profiles"))).one()
                 assert saved[: len(before)] == before
-                assert saved[len(before) :] == (None, None, None, None, None, None)
+                assert saved[len(before) :] == (None, None, None, None, None, None, None, None)
                 assert await connection.scalar(text("SELECT count(*) FROM account_objective")) == 0
                 await connection.execute(
                     text(
@@ -569,6 +569,8 @@ async def test_measurement_system_migration_preserves_values_and_is_reversible(i
                     expected = dict(original)
                     expected.pop("weight_unit")
                     expected["measurement_system"] = system
+                    expected["sex"] = None
+                    expected["activity_level"] = None
                     assert dict(saved) == expected
                 await connection.run_sync(lambda conn: migrate(conn, "20261025_05", downgrade=True))
                 restored = (

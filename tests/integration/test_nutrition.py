@@ -23,6 +23,41 @@ from app.main import create_app
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
 
+async def test_recommendation_is_private_read_only_and_explicitly_saved(nutrition_api):
+    api = nutrition_api
+    path = "/api/v1/nutrition-goals/recommendation"
+    assert (await api.client.get(path)).status_code == 401
+    missing = await api.client.get(path, auth=api.alice)
+    assert missing.status_code == 200
+    assert missing.json()["available"] is False
+    response = await api.client.patch(
+        "/api/v1/me/profile",
+        auth=api.alice,
+        json={
+            "age": 30,
+            "sex": "male",
+            "height_cm": "180",
+            "weight_kg": "80",
+            "activity_level": "moderate",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert (
+        await api.client.put("/api/v1/me/objective", auth=api.alice, json={"objective": "lose_fat"})
+    ).status_code == 200
+    suggested = (await api.client.get(path, auth=api.alice)).json()
+    assert suggested["available"] is True
+    assert Decimal(suggested["goal"]["calories"]) == Decimal("2345")
+    assert (await api.client.get("/api/v1/nutrition-goals/me", auth=api.alice)).status_code == 404
+    assert (await api.client.get(path, auth=api.bob)).json()["available"] is False
+    accepted = await api.client.post(
+        "/api/v1/nutrition-goals", auth=api.alice, json=suggested["goal"]
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["objective"] == "lose_fat"
+    assert (await api.client.get("/api/v1/nutrition-goals/me", auth=api.bob)).status_code == 404
+
+
 @pytest.fixture
 async def nutrition_api(integration_url):
     """A migrated isolated schema with two authenticated local accounts."""

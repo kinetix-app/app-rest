@@ -1,5 +1,8 @@
 # Kinetix backend
 
+Nutrition goal previews now use a deterministic Mifflin–St Jeor estimate before
+explicit goal acceptance. See [recommendation policy and scientific sources](docs/nutrition-recommendations.md).
+
 The [onboarding contract](docs/onboarding.md) separates a complete profile and selected objective from an optional manual nutrition target.
 [Body progress](docs/features/goals.md) provides dated measurements and a private weight target for the selected objective.
 

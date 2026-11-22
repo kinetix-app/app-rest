@@ -1,4 +1,5 @@
-from sqlalchemy import delete, insert, or_, select, update
+from sqlalchemy import delete, or_, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.features.accounts.models import User
@@ -426,53 +427,40 @@ async def update_recipe(db: AsyncSession, user_id: int, recipe_id: int, data: Re
 
 
 async def get_or_create_meal(db: AsyncSession, user_id: int, day_date, meal_type: str):
-    day = (
-        (
+    day_id = (
+        await db.execute(
+            insert(nutrition_day)
+            .values(user_id=user_id, date=day_date)
+            .on_conflict_do_nothing(index_elements=[nutrition_day.c.user_id, nutrition_day.c.date])
+            .returning(nutrition_day.c.id)
+        )
+    ).scalar_one_or_none()
+    if day_id is None:
+        day_id = (
             await db.execute(
-                select(nutrition_day).where(
+                select(nutrition_day.c.id).where(
                     nutrition_day.c.user_id == user_id, nutrition_day.c.date == day_date
                 )
             )
+        ).scalar_one()
+
+    meal_id = (
+        await db.execute(
+            insert(meal)
+            .values(nutrition_day_id=day_id, meal_type=meal_type)
+            .on_conflict_do_nothing(index_elements=[meal.c.nutrition_day_id, meal.c.meal_type])
+            .returning(meal.c.id)
         )
-        .mappings()
-        .one_or_none()
-    )
-    if day is None:
-        day = (
-            (
-                await db.execute(
-                    nutrition_day.insert()
-                    .values(user_id=user_id, date=day_date)
-                    .returning(nutrition_day)
-                )
-            )
-            .mappings()
-            .one()
-        )
-    entry = (
-        (
+    ).scalar_one_or_none()
+    if meal_id is None:
+        meal_id = (
             await db.execute(
-                select(meal).where(
-                    meal.c.nutrition_day_id == day["id"], meal.c.meal_type == meal_type
+                select(meal.c.id).where(
+                    meal.c.nutrition_day_id == day_id, meal.c.meal_type == meal_type
                 )
             )
-        )
-        .mappings()
-        .one_or_none()
-    )
-    if entry is None:
-        entry = (
-            (
-                await db.execute(
-                    meal.insert()
-                    .values(nutrition_day_id=day["id"], meal_type=meal_type)
-                    .returning(meal)
-                )
-            )
-            .mappings()
-            .one()
-        )
-    return entry
+        ).scalar_one()
+    return (await db.execute(select(meal).where(meal.c.id == meal_id))).mappings().one()
 
 
 async def create_recipe_meal_item(db: AsyncSession, user_id: int, data: RecipeMealItemCreate):

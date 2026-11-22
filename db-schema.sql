@@ -41,7 +41,11 @@ CREATE TABLE profiles (
     measurement_system VARCHAR(8),
     -- Private delivery endpoint or legacy HTTPS URL; blob reference never exposed.
     picture_url TEXT,
-    picture_blob_name TEXT
+    picture_blob_name TEXT,
+    -- Values: male, female. Required for nutritional requirement estimates.
+    sex VARCHAR(6),
+    -- Values: sedentary, light, moderate, high, very_high.
+    activity_level VARCHAR(16)
 );
 
 -- Selected direction, independent of physical targets and optional nutrition targets.
@@ -107,7 +111,8 @@ CREATE TABLE recipe_ingredient (
 CREATE TABLE nutrition_day (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
-    date DATE NOT NULL
+    date DATE NOT NULL,
+    UNIQUE (user_id, date)
 );
 
 -- Meals belonging to a nutrition day.
@@ -115,7 +120,8 @@ CREATE TABLE meal (
     id BIGSERIAL PRIMARY KEY,
     nutrition_day_id BIGINT NOT NULL REFERENCES nutrition_day(id),
     -- Proposed values: breakfast, lunch, dinner, snack; final meal categories pending.
-    meal_type VARCHAR(30) NOT NULL
+    meal_type VARCHAR(30) NOT NULL,
+    UNIQUE (nutrition_day_id, meal_type)
 );
 
 -- Items in a meal, can be either a food or a recipe, but not both
