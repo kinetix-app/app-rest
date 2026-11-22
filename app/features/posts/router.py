@@ -31,6 +31,7 @@ from app.features.posts.schemas import (
     PostPage,
     PostResponse,
     WorkoutDetail,
+    WorkoutTemplate,
 )
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -135,6 +136,20 @@ async def get_post_workout(
         return await service.get_post_workout(session, user.id, post_id)
     except PostNotFound:
         raise HTTPException(404, "Post not found or it does not share a workout") from None
+
+
+@router.get(
+    "/{post_id}/workout-template",
+    responses=NOT_FOUND,
+)
+async def get_workout_template(
+    post_id: ResourceId, user: CurrentUser, session: DatabaseSession
+) -> WorkoutTemplate:
+    """Return the exercises a viewer can use to start a new workout."""
+    try:
+        return await service.get_workout_template(session, user.id, post_id)
+    except PostNotFound:
+        raise HTTPException(404, POST_NOT_FOUND) from None
 
 
 @router.delete(

@@ -52,6 +52,8 @@ from app.features.posts.schemas import (
     WorkoutExercise,
     WorkoutSet,
     WorkoutSummary,
+    WorkoutTemplate,
+    WorkoutTemplateExercise,
 )
 from app.features.social.service import friend_ids_query
 from app.features.training.models import (
@@ -60,6 +62,7 @@ from app.features.training.models import (
     session_exercise,
     training_session,
 )
+from app.features.training.schemas import ExerciseResponse
 from app.features.training.service import selectable_exercise
 from app.features.training.units import display_weight
 
@@ -345,6 +348,27 @@ async def get_post_workout(session: AsyncSession, user_id: int, post_id: int) ->
                 )
             )
     return WorkoutDetail(**summary.model_dump(), detailed_exercises=list(exercises.values()))
+
+
+async def get_workout_template(
+    session: AsyncSession, user_id: int, post_id: int
+) -> WorkoutTemplate:
+    workout = await get_post_workout(session, user_id, post_id)
+    ids = {item.exercise_id for item in workout.detailed_exercises}
+    rows = await session.execute(
+        sa.select(exercise).where(exercise.c.id.in_(ids), selectable_exercise(user_id))
+    )
+    selectable = {row["id"]: ExerciseResponse.model_validate(row) for row in rows.mappings()}
+    exercises = []
+    skipped = []
+    for item in workout.detailed_exercises:
+        if item.exercise_id in selectable:
+            exercises.append(
+                WorkoutTemplateExercise(exercise=selectable[item.exercise_id], sets=item.sets)
+            )
+        else:
+            skipped.append(item.name)
+    return WorkoutTemplate(title=workout.title, exercises=exercises, skipped_exercises=skipped)
 
 
 async def _require_shareable(
