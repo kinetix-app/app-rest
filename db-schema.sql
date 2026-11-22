@@ -239,6 +239,7 @@ CREATE TABLE training_session (
     league_duration_us BIGINT,
     league_body_weight_kg NUMERIC(10,6),
     league_formula_version VARCHAR(100),
+    title VARCHAR(150) DEFAULT 'Training session' NOT NULL,
     UNIQUE (user_id, client_session_id),
     UNIQUE (id, user_id)
 );
@@ -330,7 +331,8 @@ CREATE TABLE post (
     -- Values: SESSION, LEAGUE_PENALTY, GENERAL
     type VARCHAR(14) NOT NULL,
     -- Shared completed workout; set for SESSION posts, at most one post per workout
-    training_session_id BIGINT UNIQUE REFERENCES training_session(id)
+    training_session_id BIGINT UNIQUE REFERENCES training_session(id),
+    caption VARCHAR(160) DEFAULT '' NOT NULL
 );
 
 CREATE TABLE file (

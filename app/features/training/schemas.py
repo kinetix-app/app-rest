@@ -253,10 +253,13 @@ class SessionResponse(BaseModel):
     id: int
     client_session_id: UUID | None
     routine_id: int | None
+    title: str
     activity_type: str
     state: Literal["completed"] = "completed"
     started_at: datetime
     ended_at: datetime
+    total_reps: int
+    total_volume_kg: Decimal
     exercises: list[SessionExerciseResponse]
 
 

@@ -57,6 +57,7 @@ post = sa.Table(
         unique=True,
         comment="Shared completed workout; set for SESSION posts, at most one post per workout",
     ),
+    sa.Column("caption", sa.String(160), nullable=False, server_default=""),
 )
 
 file = sa.Table(

@@ -7,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.posts.models import FileType, PostType, PostVisibility
 
-MAX_POST_TEXT = 2200
+MAX_POST_CAPTION = 160
+MAX_POST_DESCRIPTION = 2200
 MAX_COMMENT_TEXT = 1000
 
 
@@ -22,6 +23,7 @@ class WorkoutSummary(BaseModel):
     """Deterministic totals of the shared completed workout."""
 
     session_id: int
+    title: str
     activity_type: str
     started_at: datetime
     ended_at: datetime
@@ -45,6 +47,7 @@ class WorkoutSet(BaseModel):
 class WorkoutExercise(BaseModel):
     exercise_id: int
     name: str
+    image_url: str | None
     sets: list[WorkoutSet]
 
 
@@ -64,7 +67,9 @@ class PostMedia(BaseModel):
 
 class PostResponse(BaseModel):
     id: int
-    text: str
+    caption: str
+    description: str
+    text: str = Field(deprecated=True, description="Legacy alias of description")
     visibility: PostVisibility
     type: PostType
     created_at: datetime

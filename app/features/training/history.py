@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.features.training.models import exercise_set, routine, session_exercise, training_session
+from app.features.training.models import exercise_set, session_exercise, training_session
 from app.features.training.schemas import (
     ExerciseHistoryItem,
     ExerciseHistoryPage,
@@ -88,13 +88,7 @@ async def exercise_history(
                     training_session.c.id,
                     training_session.c.started_at,
                     training_session.c.ended_at,
-                    routine.c.name.label("routine_name"),
-                )
-                .outerjoin(
-                    routine,
-                    sa.and_(
-                        routine.c.id == training_session.c.routine_id, routine.c.user_id == user_id
-                    ),
+                    training_session.c.title,
                 )
                 .where(
                     training_session.c.user_id == user_id,
@@ -142,7 +136,7 @@ async def exercise_history(
                 session_id=row["id"],
                 started_at=row["started_at"],
                 ended_at=row["ended_at"],
-                name=row["routine_name"] or "Workout",
+                name=row["title"],
                 activity_type=activity_type,
                 sets=by_session[row["id"]],
             )

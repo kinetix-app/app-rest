@@ -199,12 +199,14 @@ async def test_share_workout_with_images_feed_and_media(posts_api):
     assert response.status_code == 201, response.text
     created = response.json()
     assert created["text"] == "Leg day"
+    assert (created["caption"], created["description"]) == ("", "Leg day")
     assert (created["visibility"], created["type"]) == ("PUBLIC", "SESSION")
     assert created["author"]["id"] == api.alice_id
     assert (created["like_count"], created["comment_count"]) == (0, 0)
     assert (created["liked_by_me"], created["is_mine"]) == (False, True)
     assert created["workout"] == {
         "session_id": session_id,
+        "title": "Training session",
         "activity_type": "gym",
         "started_at": "2026-11-09T16:00:00Z",
         "ended_at": "2026-11-09T16:45:00Z",
@@ -249,15 +251,31 @@ async def test_share_workout_with_images_feed_and_media(posts_api):
 
 async def test_post_workout_details_follow_post_visibility(posts_api):
     api = posts_api
+    catalogue_image = "https://media.example/catalogue.jpg"
+    private_image = "https://media.example/private.jpg"
+    async with api.sessions.begin() as session:
+        await session.execute(
+            exercise.update()
+            .where(exercise.c.id == api.catalogue[0])
+            .values(image_url=catalogue_image)
+        )
+        await session.execute(
+            exercise.update()
+            .where(exercise.c.id == api.catalogue[1])
+            .values(user_id=api.alice_id, source="manual", image_url=private_image)
+        )
     public = await shared(api, api.alice)
     response = await api.client.get(f"{POSTS}/{public['id']}/workout", auth=api.bob)
     assert response.status_code == 200, response.text
     detail = response.json()
+    assert detail["title"] == public["workout"]["title"]
     assert detail["set_count"] == 3
     assert detail["total_volume_kg"] == "1312.50"
     assert [len(item["sets"]) for item in detail["detailed_exercises"]] == [2, 1]
     first = detail["detailed_exercises"][0]
     assert first["exercise_id"] == api.catalogue[0]
+    assert first["image_url"] == catalogue_image
+    assert detail["detailed_exercises"][1]["image_url"] is None
     assert [(s["set_number"], s["reps"], s["weight_kg"]) for s in first["sets"]] == [
         (1, 8, "100.00"),
         (2, 5, "62.50"),
@@ -266,7 +284,9 @@ async def test_post_workout_details_follow_post_visibility(posts_api):
     private = await shared(api, api.alice, visibility="PRIVATE")
     path = f"{POSTS}/{private['id']}/workout"
     assert (await api.client.get(path, auth=api.bob)).status_code == 404
-    assert (await api.client.get(path, auth=api.alice)).status_code == 200
+    owned_detail = await api.client.get(path, auth=api.alice)
+    assert owned_detail.status_code == 200
+    assert owned_detail.json()["detailed_exercises"][1]["image_url"] == private_image
 
     free = await api.client.post(POSTS, auth=api.alice, data={"text": "Rest day"})
     assert free.status_code == 201, free.text
@@ -293,6 +313,8 @@ async def test_share_validation_leaves_no_posts_or_blobs(posts_api):
     cases = [
         ({"visibility": "LEAGUE"}, 422),
         ({"text": "x" * 2201}, 422),
+        ({"caption": "x" * 161}, 422),
+        ({"description": "x" * 2201}, 422),
         ({"images": 6}, 422),
     ]
     for fields, status in cases:
@@ -305,13 +327,36 @@ async def test_share_validation_leaves_no_posts_or_blobs(posts_api):
             files=[("files", ("x", payload, mime))],
         )
         assert response.status_code == status
-    for data in ({}, {"text": "   "}):
+    for data in ({}, {"text": "   "}, {"caption": "   ", "description": " "}):
         empty = await api.client.post(POSTS, auth=api.alice, data=data)
         assert empty.status_code == 422, data
-        assert empty.json()["detail"] == "Add a caption, a photo or a workout"
+        assert empty.json()["detail"] == "Add a caption, description, photo or workout"
     assert (await api.client.get(POSTS)).status_code == 401
     assert await count(api, post) == 0
     assert api.storage.blobs == {}
+
+
+async def test_post_caption_and_description_are_independent(posts_api):
+    api = posts_api
+    for form, expected in (
+        ({"caption": "  A short caption  "}, ("A short caption", "")),
+        (
+            {"description": "  A longer story\nwith two lines.  "},
+            ("", "A longer story\nwith two lines."),
+        ),
+        (
+            {"caption": "Both", "description": "New description", "text": "Legacy"},
+            ("Both", "New description"),
+        ),
+        ({"caption": "Cleared", "description": "", "text": "Legacy"}, ("Cleared", "")),
+        ({"caption": "x" * 160, "description": "y" * 2200}, ("x" * 160, "y" * 2200)),
+    ):
+        response = await api.client.post(POSTS, auth=api.alice, data=form)
+        assert response.status_code == 201
+        body = response.json()
+        visible = (await api.client.get(f"{POSTS}/{body['id']}", auth=api.bob)).json()
+        assert (visible["caption"], visible["description"]) == expected
+        assert visible["text"] == visible["description"]
 
 
 async def test_posts_without_a_workout_need_a_caption_or_photo(posts_api):

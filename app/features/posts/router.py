@@ -22,7 +22,8 @@ from app.features.posts.errors import (
 from app.features.posts.media import MAX_POST_IMAGE_BYTES, MAX_POST_IMAGES
 from app.features.posts.models import PostVisibility
 from app.features.posts.schemas import (
-    MAX_POST_TEXT,
+    MAX_POST_CAPTION,
+    MAX_POST_DESCRIPTION,
     CommentCreate,
     CommentPage,
     CommentResponse,
@@ -59,7 +60,7 @@ async def get_feed(
         409: {"description": "This workout has already been shared"},
         413: {"description": "Each image must be at most 5 MiB (25 MiB per upload)"},
         415: {"description": "Use JPEG, PNG or WebP images"},
-        422: {"description": "Empty post, or invalid workout, text, visibility or image"},
+        422: {"description": "Empty post, invalid fields or inaccessible workout"},
         503: {"description": STORAGE_UNAVAILABLE},
     },
 )
@@ -68,7 +69,9 @@ async def post_post(
     session: DatabaseSession,
     request: Request,
     training_session_id: Annotated[int | None, Form(gt=0, le=2**63 - 1)] = None,
-    text: Annotated[str, Form(max_length=MAX_POST_TEXT)] = "",
+    caption: Annotated[str, Form(max_length=MAX_POST_CAPTION)] = "",
+    description: Annotated[str | None, Form(max_length=MAX_POST_DESCRIPTION)] = None,
+    text: Annotated[str, Form(max_length=MAX_POST_DESCRIPTION, deprecated=True)] = "",
     visibility: Annotated[Literal["PUBLIC", "FRIENDS", "PRIVATE"], Form()] = "PUBLIC",
     files: Annotated[list[UploadFile] | None, File()] = None,
 ) -> PostResponse:
@@ -76,6 +79,8 @@ async def post_post(
     try:
         if len(uploads) > MAX_POST_IMAGES:
             raise HTTPException(422, TOO_MANY_IMAGES)
+        if description is None and text and "description" not in await request.form():
+            description = text
         images = [
             (await upload.read(MAX_POST_IMAGE_BYTES + 1), upload.content_type) for upload in uploads
         ]
@@ -83,13 +88,14 @@ async def post_post(
             session,
             user.id,
             request.app.state.blob_storage,
-            text=text.strip(),
+            caption=caption.strip(),
+            description=(description or "").strip(),
             training_session_id=training_session_id,
             visibility=PostVisibility(visibility),
             images=images,
         )
     except EmptyPost:
-        raise HTTPException(422, "Add a caption, a photo or a workout") from None
+        raise HTTPException(422, "Add a caption, description, photo or workout") from None
     except WorkoutUnavailable:
         raise HTTPException(422, "Share one of your completed workouts") from None
     except WorkoutAlreadyShared:

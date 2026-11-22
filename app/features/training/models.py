@@ -6,6 +6,7 @@ from sqlalchemy.dialects import postgresql
 from app.db.base import Base
 
 USER_ID_FOREIGN_KEY = "users.id"
+DEFAULT_SESSION_TITLE = "Training session"
 
 exercise = sa.Table(
     "exercise",
@@ -135,6 +136,7 @@ training_session = sa.Table(
     sa.Column("league_formula_version", sa.String(100), nullable=True),
     sa.UniqueConstraint("id", "user_id", name="uq_training_session_id_user_id"),
     sa.UniqueConstraint("user_id", "client_session_id"),
+    sa.Column("title", sa.String(150), nullable=False, server_default=DEFAULT_SESSION_TITLE),
 )
 
 session_exercise = sa.Table(
