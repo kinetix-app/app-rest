@@ -581,3 +581,73 @@ async def test_measurement_system_migration_preserves_values_and_is_reversible(i
                 await transaction.rollback()
     finally:
         await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_progress_upgrade_preserves_legacy_measurements_and_targets(integration_url):
+    engine = create_async_engine(integration_url)
+    schema = "progress_upgrade_" + uuid4().hex
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(migrate, "20261120_03")
+                user_id = await connection.scalar(
+                    text("INSERT INTO users DEFAULT VALUES RETURNING id")
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO profiles (user_id, height_cm, weight_kg) VALUES (:id, 170, 62)"
+                    ),
+                    {"id": user_id},
+                )
+                await connection.execute(
+                    text("""
+                        INSERT INTO body_measurement (user_id, date, weight_kg, waist_cm)
+                        VALUES (:id, '2020-01-02', 61.25, 75.5), (:id, '2020-01-02', 62, NULL)
+                    """),
+                    {"id": user_id},
+                )
+                await connection.execute(
+                    text("""
+                        INSERT INTO physical_goal (user_id, goal_type, target_value)
+                        VALUES (:id, 'gain_weight', 12.34), (:id, 'gain_weight', 20)
+                    """),
+                    {"id": user_id},
+                )
+
+                await connection.run_sync(migrate, "head")
+
+                observations = (
+                    await connection.execute(
+                        text("""
+                            SELECT id, date::text, weight_kg::text, waist_cm::text,
+                                   height_cm, request_id
+                            FROM body_measurement ORDER BY id
+                        """)
+                    )
+                ).all()
+                assert observations == [
+                    (1, "2020-01-02", "61.250000", "75.50", None, None),
+                    (2, "2020-01-02", "62.000000", None, None, None),
+                ]
+                targets = (
+                    await connection.execute(
+                        text(
+                            "SELECT target_value::text, target_metric "
+                            "FROM physical_goal ORDER BY id"
+                        )
+                    )
+                ).all()
+                assert targets == [("12.340000", None), ("20.000000", None)]
+                assert (
+                    await connection.execute(
+                        text("SELECT height_cm::text, weight_kg::text FROM profiles")
+                    )
+                ).one() == ("170.00", "62.000000")
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()

@@ -1,6 +1,7 @@
 # Kinetix backend
 
 The [onboarding contract](docs/onboarding.md) separates a complete profile and selected objective from an optional manual nutrition target.
+[Body progress](docs/features/goals.md) provides dated measurements and a private weight target for the selected objective.
 
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.
 

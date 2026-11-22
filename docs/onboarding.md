@@ -20,7 +20,8 @@ exactly 2.54 centimetres per inch and pounds using exactly 0.45359237 kilograms 
 they round canonical centimetres to two places and kilograms to six places using
 round-half-up before sending them. The server stores the supplied canonical measurements
 without inferring or converting them from the preference. Clearing a required field makes
-setup required again.
+setup required again. A changed height or weight is recorded for today in
+[Progress](features/goals.md). Clearing a profile value keeps its measurement history.
 These bounds validate representation; they are not health recommendations.
 
 `POST /api/v1/me/profile/picture` accepts an authenticated multipart request with one
