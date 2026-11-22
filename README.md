@@ -1,5 +1,8 @@
 # Kinetix backend
 
+Nutrition goal previews now use a deterministic Mifflin–St Jeor estimate before
+explicit goal acceptance. See [recommendation policy and scientific sources](docs/nutrition-recommendations.md).
+
 The [onboarding contract](docs/onboarding.md) separates a complete profile and selected objective from an optional manual nutrition target.
 
 FastAPI backend for Kinetix, the React Native fitness application. The product connects goals, nutrition and workout/activity records with shared training, social participation, FriendsLeague, reusable community content and AI coaching.

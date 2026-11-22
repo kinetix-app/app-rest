@@ -50,6 +50,7 @@ nutrition_day = sa.Table(
     sa.Column("id", sa.BigInteger(), primary_key=True),
     sa.Column("user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY), nullable=False),
     sa.Column("date", sa.Date(), nullable=False),
+    sa.UniqueConstraint("user_id", "date", name="uq_nutrition_day_user_id_date"),
 )
 
 meal = sa.Table(
@@ -65,6 +66,7 @@ meal = sa.Table(
         nullable=False,
         comment="Proposed values: breakfast, lunch, dinner, snack; final meal categories pending.",
     ),
+    sa.UniqueConstraint("nutrition_day_id", "meal_type", name="uq_meal_nutrition_day_id_meal_type"),
 )
 
 meal_item = sa.Table(

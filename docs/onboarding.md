@@ -70,4 +70,8 @@ data. Apply migrations before starting the updated API.
 
 `POST /api/v1/nutrition-goals` creates an owned target (201, duplicate 409). `GET /api/v1/nutrition-goals/me` returns it or 404 for absence. Existing `PATCH /api/v1/nutrition-goals/me` replaces all four numerical fields (404 if missing); it is not a partial-field patch. Input is `calories` in kcal/day (>0), `protein`, `carbohydrates` and `fats` in g/day (>=0), all with at most two decimal places. Unknown fields, including ownership/context identities, are rejected.
 
-The response adds nullable `objective`, captured from the current selected objective on each explicit target save. Legacy targets retain their amounts and null context; changing an objective never changes a target or observation. Creation/update serialize on the owned User row, alongside objective writes. A missing target does not affect account onboarding completion, food logging or day totals. No suggestions or target-based observations are created.
+Nutrition now offers an explicit recommendation preview before manual editing.
+See [calculation policy and evidence](nutrition-recommendations.md). Onboarding
+completion is unchanged; previews do not persist targets.
+
+The response adds nullable `objective`, captured from the current selected objective on each explicit target save. Legacy targets retain their amounts and null context; changing an objective never changes a target or observation. Creation/update serialize on the owned User row, alongside objective writes. A missing target does not affect account onboarding completion, food logging or day totals. Recommendation previews are calculated on demand; target-based observations are not created.

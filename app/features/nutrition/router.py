@@ -12,6 +12,7 @@ from app.features.nutrition.errors import (
     NutritionGoalNotFoundError,
     RecipeNotFoundError,
 )
+from app.features.nutrition.recommendations import NutritionRecommendation, get_recommendation
 from app.features.nutrition.schemas import (
     FoodCreate,
     FoodPatch,
@@ -56,6 +57,13 @@ recipe_router = APIRouter(prefix="/recipes", tags=["nutrition"])
 
 nutrition_goal_router = APIRouter(prefix="/nutrition-goals", tags=["nutrition"])
 FOOD_NOT_FOUND = "Food not found"
+
+
+@nutrition_goal_router.get("/recommendation")
+async def read_recommendation(
+    user: CurrentUser, session: DatabaseSession
+) -> NutritionRecommendation:
+    return await get_recommendation(session, user.id)
 
 
 @nutrition_goal_router.get(
