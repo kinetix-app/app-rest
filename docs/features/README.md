@@ -8,7 +8,7 @@ Update the relevant page whenever a feature changes.
 | --- | --- |
 | [Authentication](authentication.md) | Basic and Clerk request authentication resolve an active internal account; provider/account lifecycle gaps remain. |
 | [Accounts](accounts.md) | Lazy account/profile provisioning, account read and profile update APIs are implemented. |
-| [Goals](goals.md) | Physical-goal and measurement persistence exists; no service or API exposes it. Nutrition goals are in Nutrition. |
+| [Goals](goals.md) | Private dated body measurements, profile height and weight synchronization, and a saved weight target per objective. |
 | [Nutrition](nutrition.md) | Owned foods/recipes, nutrition goals, meal logging and daily summaries have API and persistence. |
 | Posts | Persistence only; no social API/business rules. |
 | [FriendsLeague](leagues.md) | Authenticated membership/invitations, fixed integer scoring, round/general standings, persisted results and member acknowledgements. |

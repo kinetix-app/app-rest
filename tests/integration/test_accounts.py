@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.features.accounts import service
 from app.features.accounts.models import AuthAccount, Profile, User
+from app.features.goals.models import body_measurement
 from app.main import create_app
 
 pytestmark = pytest.mark.integration
@@ -57,6 +58,9 @@ async def account_client(migrated_accounts, clerk_jwks):
                         ).all()
                     )
                     await session.execute(delete(AuthAccount).where(AuthAccount.issuer == issuer))
+                    await session.execute(
+                        delete(body_measurement).where(body_measurement.c.user_id.in_(ids))
+                    )
                     await session.execute(delete(User).where(User.id.in_(ids)))
                     await session.commit()
 
@@ -99,6 +103,9 @@ async def basic_account_client(migrated_accounts):
                             AuthAccount.issuer == "urn:kinetix:dev",
                             AuthAccount.subject.in_([username, other_username]),
                         )
+                    )
+                    await session.execute(
+                        delete(body_measurement).where(body_measurement.c.user_id.in_(ids))
                     )
                     await session.execute(delete(User).where(User.id.in_(ids)))
                     await session.commit()

@@ -11,6 +11,11 @@ from app.features.accounts.schemas import (
     ProfilePatch,
     ProfileResponse,
 )
+from app.features.goals.measurement_records import (
+    PROFILE_MEASUREMENT_FIELDS,
+    append_measurement,
+    profile_today,
+)
 from app.features.goals.models import AccountObjective
 
 
@@ -69,9 +74,7 @@ async def read_account(session: AsyncSession, user_id: int) -> AccountResponse:
     if user is None:
         raise AccountDenied
     require_active(user)
-    profile = await session.get(Profile, user_id)
-    if profile is None:
-        raise RuntimeError("Account profile is missing")
+    profile = await get_profile(session, user_id)
     profile_complete = bool(
         profile.display_name
         and profile.display_name.strip()
@@ -101,23 +104,42 @@ async def read_account(session: AsyncSession, user_id: int) -> AccountResponse:
     )
 
 
+async def lock_active_user(session: AsyncSession, user_id: int) -> User:
+    user = await session.scalar(select(User).where(User.id == user_id).with_for_update())
+    if user is None:
+        raise AccountDenied
+    require_active(user)
+    return user
+
+
+async def get_profile(session: AsyncSession, user_id: int) -> Profile:
+    profile = await session.get(Profile, user_id)
+    if profile is None:
+        raise RuntimeError("Account profile is missing")
+    return profile
+
+
 async def update_profile(
     session: AsyncSession, user_id: int, changes: ProfilePatch, storage: BlobStorage | None = None
 ) -> AccountResponse:
     try:
-        user = await session.scalar(select(User).where(User.id == user_id).with_for_update())
-        if user is None:
-            raise AccountDenied
-        require_active(user)
-        profile = await session.get(Profile, user_id)
-        if profile is None:
-            raise RuntimeError("Account profile is missing")
+        await lock_active_user(session, user_id)
+        profile = await get_profile(session, user_id)
         previous_picture = None
         if "picture_url" in changes.model_fields_set:
             previous_picture = profile.picture_blob_name
             profile.picture_blob_name = None
-        for name, value in changes.model_dump(exclude_unset=True).items():
+        updates = changes.model_dump(exclude_unset=True)
+        measurements = {}
+        for name in PROFILE_MEASUREMENT_FIELDS:
+            if name in updates and updates[name] is not None:
+                value = updates.pop(name)
+                if value != getattr(profile, name):
+                    measurements[name] = value
+        for name, value in updates.items():
             setattr(profile, name, value)
+        if measurements:
+            await append_measurement(session, profile, profile_today(profile), measurements)
         await session.flush()
         await session.refresh(profile)
         response = await read_account(session, user_id)

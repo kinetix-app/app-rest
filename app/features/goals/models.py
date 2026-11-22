@@ -25,10 +25,17 @@ physical_goal = sa.Table(
             "Target metric/unit and interpretation remain pending DEC-01."
         ),
     ),
-    sa.Column("target_value", sa.Numeric(8, 2), nullable=False),
+    sa.Column("target_value", sa.Numeric(12, 6), nullable=False),
+    sa.Column(
+        "target_metric",
+        sa.String(16),
+        nullable=True,
+        comment="Values: weight_kg (kg); NULL preserves legacy targets of unspecified metric.",
+    ),
     sa.Column("start_date", sa.Date(), nullable=False, server_default=sa.text("CURRENT_DATE")),
     sa.Column("target_date", sa.Date(), nullable=True),
     sa.Column("completed_at", sa.DateTime(), nullable=True),
+    sa.UniqueConstraint("user_id", "goal_type", "target_metric"),
 )
 
 body_measurement = sa.Table(
@@ -39,13 +46,17 @@ body_measurement = sa.Table(
         "user_id", sa.BigInteger(), sa.ForeignKey(USER_ID_FOREIGN_KEY_TARGET), nullable=False
     ),
     sa.Column("date", sa.Date(), nullable=False, server_default=sa.text("CURRENT_DATE")),
-    sa.Column("weight_kg", sa.Numeric(5, 2), nullable=True),
+    sa.Column("height_cm", sa.Numeric(5, 2), nullable=True),
+    sa.Column("weight_kg", sa.Numeric(10, 6), nullable=True),
     sa.Column("body_fat_percentage", sa.Numeric(5, 2), nullable=True),
-    sa.Column("muscle_mass_kg", sa.Numeric(5, 2), nullable=True),
+    sa.Column("muscle_mass_kg", sa.Numeric(10, 6), nullable=True),
     sa.Column("waist_cm", sa.Numeric(5, 2), nullable=True),
     sa.Column("chest_cm", sa.Numeric(5, 2), nullable=True),
     sa.Column("arm_cm", sa.Numeric(5, 2), nullable=True),
     sa.Column("thigh_cm", sa.Numeric(5, 2), nullable=True),
+    sa.Column("request_id", sa.Uuid(), nullable=True),
+    sa.UniqueConstraint("user_id", "request_id"),
+    sa.Index("ix_body_measurement_user_id_date_id", "user_id", "date", "id"),
 )
 
 

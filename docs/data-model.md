@@ -199,23 +199,26 @@ erDiagram
         bigint id PK "generated; required"
         bigint user_id FK "required"
         varchar goal_type "VARCHAR(50); required"
-        decimal target_value "DECIMAL(8,2); required"
+        decimal target_value "DECIMAL(12,6); required"
         date start_date "required"
         date target_date "nullable"
         timestamp completed_at "nullable"
+        varchar target_metric "VARCHAR(16); nullable for legacy targets"
     }
 
     body_measurement {
         bigint id PK "generated; required"
         bigint user_id FK "required"
         date date "required"
-        decimal weight_kg "DECIMAL(5,2); nullable"
+        decimal weight_kg "DECIMAL(10,6); nullable"
         decimal body_fat_percentage "DECIMAL(5,2); nullable"
-        decimal muscle_mass_kg "DECIMAL(5,2); nullable"
+        decimal muscle_mass_kg "DECIMAL(10,6); nullable"
         decimal waist_cm "DECIMAL(5,2); nullable"
         decimal chest_cm "DECIMAL(5,2); nullable"
         decimal arm_cm "DECIMAL(5,2); nullable"
         decimal thigh_cm "DECIMAL(5,2); nullable"
+        decimal height_cm "DECIMAL(5,2); nullable"
+        uuid request_id "nullable; unique per user when supplied"
     }
 
     users ||..o{ auth_accounts : "user"
