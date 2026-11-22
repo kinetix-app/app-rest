@@ -3,6 +3,7 @@
 import hashlib
 import json
 from datetime import UTC
+from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert
@@ -12,6 +13,7 @@ from app.features.accounts.models import User
 from app.features.leagues.scoring import credit_completed_session
 from app.features.training.errors import IdempotencyConflict, InvalidSelection, TrainingNotFound
 from app.features.training.models import (
+    DEFAULT_SESSION_TITLE,
     exercise,
     exercise_set,
     routine,
@@ -113,6 +115,8 @@ async def get_session(
         ).mappings()
     }
     sets = {}
+    total_reps = 0
+    total_volume_kg = Decimal(0)
     for value in (
         await session.execute(
             sa.select(exercise_set)
@@ -120,7 +124,11 @@ async def get_session(
             .order_by(exercise_set.c.set_number, exercise_set.c.id)
         )
     ).mappings():
-        sets.setdefault(value["session_exercise_id"], []).append(present_set(value, unit))
+        recorded = present_set(value, unit)
+        sets.setdefault(value["session_exercise_id"], []).append(recorded)
+        reps = recorded.reps or 0
+        total_reps += reps
+        total_volume_kg += (recorded.weight_kg or 0) * reps
     return SessionResponse(
         **{
             key: row[key]
@@ -128,11 +136,14 @@ async def get_session(
                 "id",
                 "client_session_id",
                 "routine_id",
+                "title",
                 "activity_type",
                 "started_at",
                 "ended_at",
             )
         },
+        total_reps=total_reps,
+        total_volume_kg=display_weight(total_volume_kg, "kg"),
         exercises=[
             SessionExerciseResponse(
                 id=entry["id"],
@@ -166,15 +177,21 @@ async def list_sessions(
 
 async def validate_sources(
     session: AsyncSession, user_id: int, data: SessionCreate | DraftSnapshot
-) -> None:
+) -> str:
+    title = DEFAULT_SESSION_TITLE
     if data.routine_id is not None:
-        owner = await session.scalar(
-            sa.select(routine.c.user_id)
-            .where(routine.c.id == data.routine_id, routine.c.deleted_at.is_(None))
+        name = await session.scalar(
+            sa.select(routine.c.name)
+            .where(
+                routine.c.id == data.routine_id,
+                routine.c.user_id == user_id,
+                routine.c.deleted_at.is_(None),
+            )
             .with_for_update(read=True)
         )
-        if owner != user_id:
+        if name is None:
             raise InvalidSelection
+        title = name.strip() or DEFAULT_SESSION_TITLE
     requested = {item.exercise_id for item in data.exercises}
     available = dict(
         (
@@ -196,6 +213,7 @@ async def validate_sources(
                 )
             except ValueError:
                 raise InvalidSelection from None
+    return title
 
 
 def _accepted_session_fingerprints(data: SessionCreate) -> set[str]:
@@ -246,13 +264,14 @@ async def _completed_retry(
 
 
 async def _insert_session(
-    session: AsyncSession, user_id: int, data: SessionCreate, fingerprint: str
+    session: AsyncSession, user_id: int, data: SessionCreate, fingerprint: str, title: str
 ) -> int | None:
     return await session.scalar(
         insert(training_session)
         .values(
             user_id=user_id,
             routine_id=data.routine_id,
+            title=title,
             activity_type="gym",
             client_session_id=data.client_session_id,
             payload_fingerprint=fingerprint,
@@ -338,8 +357,8 @@ async def create_session(
             if commit:
                 await session.commit()
             return result, False
-        await validate_sources(session, user_id, data)
-        identifier = await _insert_session(session, user_id, data, fingerprint)
+        title = await validate_sources(session, user_id, data)
+        identifier = await _insert_session(session, user_id, data, fingerprint, title)
         created = identifier is not None
         if identifier is None:
             identifier = await _concurrent_session_id(session, user_id, data, accepted_fingerprints)

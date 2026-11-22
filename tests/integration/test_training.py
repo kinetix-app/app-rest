@@ -725,6 +725,9 @@ async def test_complete_blank_workout_units_history_isolation_and_retry(training
     saved = response.json()
     assert saved["state"] == "completed"
     assert saved["routine_id"] is None
+    assert saved["title"] == "Training session"
+    assert saved["total_reps"] == 8
+    assert saved["total_volume_kg"] == "362.87"
     actual = saved["exercises"][0]["sets"][0]
     assert actual["weight_kg"] == "45.359237"
     assert actual["weight"] == {"value": "100.00", "unit": "lb"}
@@ -1848,9 +1851,10 @@ async def test_delete_serializes_with_draft_save_and_finish(training_api, monkey
     original = sessions.validate_sources
 
     async def paused_sources(*args):
-        await original(*args)
+        title = await original(*args)
         validated.set()
         await asyncio.wait_for(release.wait(), 5)
+        return title
 
     monkeypatch.setattr(sessions, "validate_sources", paused_sources)
     request = (
@@ -1874,6 +1878,7 @@ async def test_delete_serializes_with_draft_save_and_finish(training_api, monkey
         deleted = await asyncio.wait_for(removal, 5)
         assert deleted.status_code == (409 if operation == "save" else 204)
         if operation == "finish":
+            assert changed.json()["title"] == saved["name"]
             repeated = await api.client.post(
                 draft_path + "/finish", auth=api.alice, json={"ended_at": "2026-10-25T10:10:00Z"}
             )

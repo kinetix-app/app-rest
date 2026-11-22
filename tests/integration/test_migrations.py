@@ -126,6 +126,52 @@ async def test_clean_migration_matches_sql_draft_and_downgrades(integration_url)
 
 
 @pytest.mark.anyio
+async def test_workout_titles_backfill_and_legacy_post_text_is_preserved(integration_url):
+    engine = create_async_engine(integration_url)
+    schema = "migration_" + uuid4().hex
+    try:
+        async with engine.connect() as connection, connection.begin() as transaction:
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(lambda conn: migrate(conn, "20261122_03"))
+                await connection.execute(text("INSERT INTO users DEFAULT VALUES"))
+                await connection.execute(text("INSERT INTO users DEFAULT VALUES"))
+                await connection.execute(
+                    text("""
+                    INSERT INTO routine (user_id, name, deleted_at)
+                    VALUES (1, 'Original routine', now()), (2, 'Private routine', NULL)
+                """)
+                )
+                await connection.execute(
+                    text("""
+                    INSERT INTO training_session
+                        (user_id, routine_id, activity_type, started_at, ended_at)
+                    VALUES (1, 1, 'gym', now(), now()), (1, NULL, 'gym', now(), now()),
+                           (1, 2, 'gym', now(), now())
+                """)
+                )
+                await connection.execute(
+                    text("""
+                    INSERT INTO post (text, user_id, visibility, type, training_session_id)
+                    VALUES ('Existing story', 1, 'PUBLIC', 'SESSION', 1)
+                """)
+                )
+                await connection.run_sync(lambda conn: migrate(conn, "head"))
+                assert (
+                    await connection.scalars(text("SELECT title FROM training_session ORDER BY id"))
+                ).all() == ["Original routine", "Training session", "Training session"]
+                assert (await connection.execute(text("SELECT caption, text FROM post"))).one() == (
+                    "",
+                    "Existing story",
+                )
+            finally:
+                await transaction.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
 async def test_catalogue_cleanup_removes_unused_legacy_shared_foods(integration_url):
     engine = create_async_engine(integration_url)
     schema = "migration_" + uuid4().hex

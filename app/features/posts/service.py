@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Sequence
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Literal
 from uuid import uuid4
 
@@ -60,11 +60,12 @@ from app.features.training.models import (
     session_exercise,
     training_session,
 )
+from app.features.training.service import selectable_exercise
+from app.features.training.units import display_weight
 
 users = User.__table__
 profiles = Profile.__table__
 FeedScope = Literal["everyone", "friends"]
-VOLUME_PRECISION = Decimal("0.01")
 
 
 def _visible_posts(user_id: int) -> sa.Select:
@@ -173,6 +174,7 @@ async def _workouts(session: AsyncSession, ids: set[int]) -> dict[int, WorkoutSu
         total = totals.get(row["id"])
         result[row["id"]] = WorkoutSummary(
             session_id=row["id"],
+            title=row["title"],
             activity_type=row["activity_type"],
             started_at=row["started_at"],
             ended_at=row["ended_at"],
@@ -180,9 +182,7 @@ async def _workouts(session: AsyncSession, ids: set[int]) -> dict[int, WorkoutSu
             exercise_count=len(names.get(row["id"], [])),
             set_count=total.set_count if total else 0,
             total_reps=int(total.total_reps) if total else 0,
-            total_volume_kg=Decimal(str(total.volume if total else 0)).quantize(
-                VOLUME_PRECISION, rounding=ROUND_HALF_UP
-            ),
+            total_volume_kg=display_weight(Decimal(total.volume if total else 0), "kg"),
             exercises=names.get(row["id"], []),
         )
     return result
@@ -240,6 +240,8 @@ async def _hydrate(session: AsyncSession, user_id: int, rows: Sequence) -> list[
     return [
         PostResponse(
             id=row["id"],
+            caption=row["caption"],
+            description=row["text"],
             text=row["text"],
             visibility=row["visibility"],
             type=row["type"],
@@ -306,6 +308,7 @@ async def get_post_workout(session: AsyncSession, user_id: int, post_id: int) ->
             session_exercise.c.id,
             exercise.c.id.label("exercise_id"),
             exercise.c.name,
+            sa.case((selectable_exercise(user_id), exercise.c.image_url)).label("image_url"),
             exercise_set.c.set_number,
             exercise_set.c.reps,
             exercise_set.c.weight_kg,
@@ -324,7 +327,10 @@ async def get_post_workout(session: AsyncSession, user_id: int, post_id: int) ->
     )
     for row in rows:
         item = exercises.setdefault(
-            row.id, WorkoutExercise(exercise_id=row.exercise_id, name=row.name, sets=[])
+            row.id,
+            WorkoutExercise(
+                exercise_id=row.exercise_id, name=row.name, image_url=row.image_url, sets=[]
+            ),
         )
         if row.set_number is not None:
             item.sets.append(
@@ -333,7 +339,7 @@ async def get_post_workout(session: AsyncSession, user_id: int, post_id: int) ->
                     reps=row.reps,
                     weight_kg=None
                     if row.weight_kg is None
-                    else Decimal(row.weight_kg).quantize(VOLUME_PRECISION, rounding=ROUND_HALF_UP),
+                    else display_weight(row.weight_kg, "kg"),
                     duration_seconds=row.duration_seconds,
                     distance_km=row.distance_km,
                 )
@@ -365,13 +371,13 @@ async def create_post(
     user_id: int,
     storage: BlobStorage | None,
     *,
-    text: str,
+    caption: str,
+    description: str,
     training_session_id: int | None,
     visibility: PostVisibility,
     images: Sequence[tuple[bytes, str | None]],
 ) -> PostResponse:
-    # A post needs something to show: a workout, a caption or a photo.
-    if training_session_id is None and not text and not images:
+    if training_session_id is None and not (caption or description or images):
         raise EmptyPost
     normalized = [await asyncio.to_thread(normalize_post_image, *image) for image in images]
     if normalized and storage is None:
@@ -400,7 +406,8 @@ async def create_post(
         post_id = await session.scalar(
             post.insert()
             .values(
-                text=text,
+                caption=caption,
+                text=description,
                 user_id=user_id,
                 visibility=visibility,
                 type=PostType.GENERAL if training_session_id is None else PostType.SESSION,

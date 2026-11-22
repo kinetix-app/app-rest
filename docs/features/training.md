@@ -125,7 +125,7 @@ completed history are preserved and remain active. Downgrading removes the delet
 marker and therefore makes previously deleted routines visible again; it never removes
 completed training references.
 
-`GET /api/v1/exercises/{id}/history` requires authentication and returns only the caller's completed sessions containing a selectable exercise. Results use `limit` (1–100, default 20), `offset` and `weight_unit` (`kg` or `lb`), ordered by completion time and session ID descending. Each item contains the session timestamps, routine name (or `Workout`), exercise activity type and the matching performed sets in exercise/set order; repeated occurrences are grouped. Unselectable exercises return 404.
+`GET /api/v1/exercises/{id}/history` requires authentication and returns only the caller's completed sessions containing a selectable exercise. Results use `limit` (1–100, default 20), `offset` and `weight_unit` (`kg` or `lb`), ordered by completion time and session ID descending. Each item contains the session timestamps, the saved workout title in `name`, exercise activity type and the matching performed sets in exercise/set order; repeated occurrences are grouped. Unselectable exercises return 404.
 
 ### Exercise evolution
 

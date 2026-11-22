@@ -428,6 +428,10 @@ recorded finish instant and frozen payload until success is confirmed.
 limit is 1–100. `GET /api/v1/sessions/{id}?weight_unit=lb` reopens owned actual results.
 Both use the same completed-session DTO, including ordered exercises and sets. Another
 account's detail returns 404 and its workouts never appear in the caller's history.
+The `title` is the source routine's name at completion, or `Training session` for
+a standalone workout. Later edits to the routine leave the completed title intact.
+Both responses include `total_reps` and `total_volume_kg`, using the same recorded
+set totals as the workout posts feed.
 Each set exposes canonical `weight_kg` with six decimal places plus explicitly labelled
 `weight: {value, unit}` rounded to two display decimals. Routine detail/create/update also
 accept `weight_unit=kg|lb`; planned-set inputs accept either legacy `weight_kg` or explicit
@@ -453,10 +457,10 @@ integration verification.
 
 ## Workout posts feed
 
-Accounts share a completed workout as a post with an optional caption and up to five
-images. Likes and comments are attached to the post. This increment has no follow/friend
-graph: the feed shows **every PUBLIC post by an active account plus all of the caller's
-own posts** (PUBLIC or PRIVATE). PRIVATE posts are visible only to their author. LEAGUE
+Accounts can write an optional caption and description, attach up to five images and
+share a completed workout. A post needs at least one of these. Likes and comments are
+attached to the post. The public feed includes PUBLIC posts from active accounts,
+visible FRIENDS posts and the caller's own posts. PRIVATE posts are visible only to their author. LEAGUE
 visibility and league-penalty posts are reserved for FriendsLeague and are rejected by the
 API. A blocked or deleted author's posts disappear from other accounts' feeds. Any
 post the caller cannot see returns 404 from every route, including likes, comments and
@@ -465,8 +469,9 @@ media.
 | Route | Behavior |
 |---|---|
 | `GET /api/v1/posts?limit=20&before_id=` | Feed, newest first (ID descending). Limit 1–50. Pass the returned `next_before_id` as `before_id` for the next page; it is `null` on the last page. The cursor stays stable while new posts arrive. |
-| `POST /api/v1/posts` | `multipart/form-data`: `training_session_id` (required), `text` (optional, ≤2200 characters, trimmed), `visibility` (`PUBLIC` default or `PRIVATE`) and repeated `files` (0–5 JPEG/PNG/WebP images, ≤5 MiB each, ≤25 MiB per request). Returns 201 with the post. |
+| `POST /api/v1/posts` | `multipart/form-data`: optional `training_session_id`, `caption` (≤160 characters), `description` (≤2200 characters), `visibility` (`PUBLIC` default, `FRIENDS` or `PRIVATE`) and repeated `files` (0–5 JPEG/PNG/WebP images, ≤5 MiB each, ≤25 MiB per request). Trims both text fields. Returns 201 with the post. |
 | `GET /api/v1/posts/{id}` | One visible post. |
+| `GET /api/v1/posts/{id}/workout` | The same title and totals with ordered exercises and recorded sets. Exercise image URLs are returned when the viewer can access the exercise. |
 | `DELETE /api/v1/posts/{id}` | Author only (403 otherwise). Removes the post, its likes, comments and file rows in one transaction, then deletes its blobs. The workout itself is kept and can be shared again. |
 | `PUT` / `DELETE /api/v1/posts/{id}/like` | Idempotent like/unlike. Returns `{liked, like_count}`. |
 | `GET /api/v1/posts/{id}/comments?limit=50&after_id=` | Oldest first. Limit 1–100. Pass `next_after_id` as `after_id` for the next page. |
@@ -476,13 +481,15 @@ media.
 
 Each post response contains `author {id, display_name}`, `media [{id, type, order, url}]`,
 `like_count`, `comment_count`, `liked_by_me`, `is_mine` and a `workout` summary.
+`caption` and `description` are strings and may be empty. Older clients can still
+submit `text` without `description` and read `text` as an alias of `description`.
 `media[].url` is the authenticated API path above; clients send their normal
 Authorization header to load images. The private bucket URL is never returned.
 
 **Workout summary.** Only the caller's own completed workout (`ended_at` set) can be
 shared, otherwise 422. A workout can have at most one post (409 on a second share,
-enforced by a UNIQUE `post.training_session_id`). The summary is computed from recorded
-history on every read: `duration_seconds` (end − start), `exercise_count`, ordered
+enforced by a UNIQUE `post.training_session_id`). The summary returns the saved workout
+`title` and computes totals from recorded history on every read: `duration_seconds` (end − start), `exercise_count`, ordered
 exercise names, `set_count`, `total_reps` and `total_volume_kg`. Volume is the sum of
 `reps × weight_kg` over recorded sets, rounded half-up to 0.01 kg and returned as decimal
 text. Completed workouts store only confirmed sets, so every recorded set counts.
@@ -499,6 +506,11 @@ without storage configuration. Uploading or reading images without storage retur
 Revision `20261120_01` adds nullable `post.training_session_id` (UNIQUE, references
 `training_session`) and indexes on `file.post_id` and `post_comment.post_id`. Existing
 posts keep a NULL reference. Downgrading drops the workout link.
+
+Revision `20261122_04` adds empty captions to existing posts and preserves their
+legacy text as the description. Existing workouts get the linked routine's current
+name when available, with `Training session` as the fallback. Subsequent routine
+renames leave the backfilled title intact. Downgrading drops captions and saved titles.
 
 Profile pictures are visible to every signed-in account so people with the same name can
 be told apart. `author`, comment authors and every person object carry `has_picture`; when
