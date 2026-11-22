@@ -344,6 +344,8 @@ async def test_onboarding_profile_objective_persistence_and_clearing(account_cli
     profile = {
         "display_name": " Alice ",
         "age": 30,
+        "sex": "female",
+        "activity_level": "moderate",
         "height_cm": "170.25",
         "weight_kg": "68.038855",
         "picture_url": "",
@@ -359,6 +361,8 @@ async def test_onboarding_profile_objective_persistence_and_clearing(account_cli
     assert complete.json()["profile"]["height_cm"] == "170.25"
     assert complete.json()["profile"]["measurement_system"] == "imperial"
     assert complete.json()["profile"]["display_name"] == "Alice"
+    assert complete.json()["profile"]["sex"] == "female"
+    assert complete.json()["profile"]["activity_level"] == "moderate"
     assert complete.json()["profile"]["picture_url"] is None
     assert complete.json()["onboarding"]["profile_complete"] is True
     assert complete.json()["onboarding"]["required"] is True

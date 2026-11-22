@@ -4,10 +4,10 @@
 profile and derived `onboarding` state. First authenticated access provisions only a
 minimal account. Existing users with incomplete profiles also receive `required: true`.
 
-The profile is complete when `display_name`, `age`, `height_cm`, `weight_kg` and
-`measurement_system` are present. A picture and timezone are optional. Completion also requires
-an objective selected through `PUT /api/v1/me/objective`. Numerical nutrition targets
-are independent and never gate completion or food logging.
+The profile is complete when `display_name`, `age`, `sex`, `activity_level`, `height_cm`,
+`weight_kg` and `measurement_system` are present. A picture and timezone are optional.
+Completion also requires an objective selected through `PUT /api/v1/me/objective`.
+Numerical nutrition targets are independent and never gate completion or food logging.
 
 `PATCH /api/v1/me/profile` preserves omitted fields; explicit null clears a field.
 Names are trimmed and must contain 1–100 characters. Age is an integer from 1–120.
@@ -43,8 +43,9 @@ failed persistence removes the new upload, and committed replacement/deletion at
 best-effort cleanup of the previous blob. Cleanup failures can leave unreferenced blobs.
 `picture_url` PATCH still accepts legacy HTTPS URLs without credentials or null/empty
 to clear, and clears any previous upload reference. Omitted picture fields preserve
-uploads. No remote image retrieval occurs. No sex, activity level, date of birth or
-additional health field is collected for automatic calculations.
+uploads. No remote image retrieval occurs. `sex` accepts `male` or `female`; `activity_level`
+accepts `sedentary`, `light`, `moderate`, `high` or `very_high`. These inputs support the
+nutrition-requirement preview. No date of birth or additional health field is collected.
 
 Revision `20261025_05` adds the nullable hidden `picture_blob_name`; it preserves existing
 profile fields and legacy URLs. Downgrade clears uploaded endpoint URLs and loses their
