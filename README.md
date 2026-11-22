@@ -470,6 +470,7 @@ media.
 |---|---|
 | `GET /api/v1/posts?limit=20&before_id=` | Feed, newest first (ID descending). Limit 1–50. Pass the returned `next_before_id` as `before_id` for the next page; it is `null` on the last page. The cursor stays stable while new posts arrive. |
 | `POST /api/v1/posts` | `multipart/form-data`: optional `training_session_id`, `caption` (≤160 characters), `description` (≤2200 characters), `visibility` (`PUBLIC` default, `FRIENDS` or `PRIVATE`) and repeated `files` (0–5 JPEG/PNG/WebP images, ≤5 MiB each, ≤25 MiB per request). Trims both text fields. Returns 201 with the post. |
+| `GET /api/v1/posts/workout-options?selected_session_id=` | Up to five newest unshared completed workouts owned by the caller. Returns an eligible explicit selection separately, or null. |
 | `GET /api/v1/posts/{id}` | One visible post. |
 | `GET /api/v1/posts/{id}/workout` | The same title and totals with ordered exercises and recorded sets. Exercise image URLs are returned when the viewer can access the exercise. |
 | `GET /api/v1/posts/{id}/workout-template` | A visible workout’s title and ordered selectable exercises with recorded sets. Returns skipped exercise names and 404 for invisible or workout-free posts. |

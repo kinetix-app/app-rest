@@ -37,6 +37,11 @@ class WorkoutSummary(BaseModel):
     exercises: list[str]
 
 
+class WorkoutOptions(BaseModel):
+    items: list[WorkoutSummary]
+    selected: WorkoutSummary | None
+
+
 class WorkoutSet(BaseModel):
     set_number: int
     reps: int | None

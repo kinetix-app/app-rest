@@ -381,6 +381,36 @@ async def test_workout_template_obeys_post_and_exercise_access(posts_api):
     ).status_code == 404
 
 
+async def test_workout_options_are_recent_owned_and_unshared(posts_api):
+    api = posts_api
+    owned = [await workout(api, api.alice) for _ in range(7)]
+    other = await workout(api, api.bob)
+    async with api.sessions.begin() as session:
+        await session.execute(
+            training_session.update()
+            .where(training_session.c.id == owned[1])
+            .values(ended_at=datetime(2026, 11, 10, tzinfo=UTC))
+        )
+    assert (await share(api, api.alice, owned[-1])).status_code == 201
+    path = f"{POSTS}/workout-options"
+    result = await api.client.get(path, auth=api.alice, params={"selected_session_id": owned[0]})
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert [item["session_id"] for item in payload["items"]] == [owned[i] for i in (1, 5, 4, 3, 2)]
+    assert payload["selected"]["session_id"] == owned[0]
+    for excluded in (owned[-1], other, 9999):
+        inaccessible = await api.client.get(
+            path, auth=api.alice, params={"selected_session_id": excluded}
+        )
+        assert inaccessible.json()["selected"] is None
+    assert (await api.client.get(path, auth=api.carol)).json() == {"items": [], "selected": None}
+    assert (
+        await api.client.get(path, auth=api.alice, params={"selected_session_id": 0})
+    ).status_code == 422
+    assert (await share(api, api.alice, owned[0])).status_code == 201
+    assert (await share(api, api.alice, owned[0])).status_code == 409
+
+
 async def test_share_validation_leaves_no_posts_or_blobs(posts_api):
     api = posts_api
     session_id = await workout(api, api.alice)

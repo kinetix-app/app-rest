@@ -50,6 +50,7 @@ from app.features.posts.schemas import (
     PostResponse,
     WorkoutDetail,
     WorkoutExercise,
+    WorkoutOptions,
     WorkoutSet,
     WorkoutSummary,
     WorkoutTemplate,
@@ -371,13 +372,44 @@ async def get_workout_template(
     return WorkoutTemplate(title=workout.title, exercises=exercises, skipped_exercises=skipped)
 
 
+def _owned_completed_workout_ids(user_id: int) -> sa.Select:
+    return sa.select(training_session.c.id).where(
+        training_session.c.user_id == user_id,
+        training_session.c.ended_at.is_not(None),
+    )
+
+
+async def list_workout_options(
+    session: AsyncSession, user_id: int, selected_session_id: int | None
+) -> WorkoutOptions:
+    eligible = _owned_completed_workout_ids(user_id).where(
+        ~sa.exists().where(post.c.training_session_id == training_session.c.id)
+    )
+    recent = list(
+        await session.scalars(
+            eligible.order_by(
+                training_session.c.ended_at.desc(), training_session.c.id.desc()
+            ).limit(5)
+        )
+    )
+    selected = selected_session_id
+    if selected is not None and selected not in recent:
+        selected = await session.scalar(eligible.where(training_session.c.id == selected))
+    ids = set(recent)
+    if selected is not None:
+        ids.add(selected)
+    summaries = await _workouts(session, ids)
+    return WorkoutOptions(
+        items=[summaries[session_id] for session_id in recent if session_id in summaries],
+        selected=summaries.get(selected) if selected is not None else None,
+    )
+
+
 async def _require_shareable(
     session: AsyncSession, user_id: int, training_session_id: int, *, lock: bool
 ) -> None:
-    query = sa.select(training_session.c.id).where(
-        training_session.c.id == training_session_id,
-        training_session.c.user_id == user_id,
-        training_session.c.ended_at.is_not(None),
+    query = _owned_completed_workout_ids(user_id).where(
+        training_session.c.id == training_session_id
     )
     if lock:
         # Serializes concurrent shares of the same workout; the UNIQUE column is the backstop.

@@ -31,6 +31,7 @@ from app.features.posts.schemas import (
     PostPage,
     PostResponse,
     WorkoutDetail,
+    WorkoutOptions,
     WorkoutTemplate,
 )
 
@@ -112,6 +113,13 @@ async def post_post(
     finally:
         for upload in uploads:
             await upload.close()
+
+
+@router.get("/workout-options")
+async def get_workout_options(
+    user: CurrentUser, session: DatabaseSession, selected_session_id: Cursor = None
+) -> WorkoutOptions:
+    return await service.list_workout_options(session, user.id, selected_session_id)
 
 
 @router.get("/{post_id}", responses=NOT_FOUND)
