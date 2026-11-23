@@ -32,9 +32,11 @@ async def liveness() -> HealthResponse:
 )
 async def readiness(request: Request) -> HealthResponse | JSONResponse:
     try:
-        async with asyncio.timeout(request.app.state.settings.database_timeout_seconds):
-            async with request.app.state.engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
+        async with (
+            asyncio.timeout(request.app.state.settings.database_timeout_seconds),
+            request.app.state.engine.connect() as connection,
+        ):
+            await connection.execute(text("SELECT 1"))
         if request.app.state.blob_storage is not None:
             await request.app.state.blob_storage.check()
     except SQLAlchemyError, AzureError, OSError:

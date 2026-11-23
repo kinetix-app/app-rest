@@ -27,7 +27,9 @@ PersonId = Annotated[int, Path(gt=0, le=2**63 - 1)]
 PERSON_NOT_FOUND = "Person not found"
 
 
-@people_router.get("")
+@people_router.get(
+    "", responses={422: {"description": "Search query must contain at least two characters"}}
+)
 async def search_people(
     user: CurrentUser,
     session: DatabaseSession,

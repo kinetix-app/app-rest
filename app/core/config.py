@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
+_CONTAINER_NAME_PATTERN = r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
 _POSTGRES_DIALECT = "postgresql+psycopg"
 _POSTGRES_URL_SCHEMES = {"postgres", "postgresql", _POSTGRES_DIALECT, "postgresql+asyncpg"}
 
@@ -55,15 +56,11 @@ class Settings(DatabaseSettings):
     basic_auth_users: dict[str, SecretStr] = Field(default_factory=dict)
 
     azure_storage_connection_string: SecretStr | None = None
-    azure_storage_container: str = Field(
-        default="exercises", pattern=r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
-    )
+    azure_storage_container: str = Field(default="exercises", pattern=_CONTAINER_NAME_PATTERN)
     azure_storage_profile_container: str = Field(
-        default="profile-pictures", pattern=r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
+        default="profile-pictures", pattern=_CONTAINER_NAME_PATTERN
     )
-    azure_storage_post_container: str = Field(
-        default="post-media", pattern=r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$"
-    )
+    azure_storage_post_container: str = Field(default="post-media", pattern=_CONTAINER_NAME_PATTERN)
     azure_storage_media_base_url: str | None = None
     azure_storage_local_public_read: bool = False
     azure_storage_timeout_seconds: float = Field(default=30, gt=0, le=120)
