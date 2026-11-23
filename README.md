@@ -470,8 +470,10 @@ media.
 |---|---|
 | `GET /api/v1/posts?limit=20&before_id=` | Feed, newest first (ID descending). Limit 1–50. Pass the returned `next_before_id` as `before_id` for the next page; it is `null` on the last page. The cursor stays stable while new posts arrive. |
 | `POST /api/v1/posts` | `multipart/form-data`: optional `training_session_id`, `caption` (≤160 characters), `description` (≤2200 characters), `visibility` (`PUBLIC` default, `FRIENDS` or `PRIVATE`) and repeated `files` (0–5 JPEG/PNG/WebP images, ≤5 MiB each, ≤25 MiB per request). Trims both text fields. Returns 201 with the post. |
+| `GET /api/v1/posts/workout-options?selected_session_id=` | Up to five newest unshared completed workouts owned by the caller. Returns an eligible explicit selection separately, or null. |
 | `GET /api/v1/posts/{id}` | One visible post. |
 | `GET /api/v1/posts/{id}/workout` | The same title and totals with ordered exercises and recorded sets. Exercise image URLs are returned when the viewer can access the exercise. |
+| `GET /api/v1/posts/{id}/workout-template` | A visible workout’s title and ordered selectable exercises with recorded sets. Returns skipped exercise names and 404 for invisible or workout-free posts. |
 | `DELETE /api/v1/posts/{id}` | Author only (403 otherwise). Removes the post, its likes, comments and file rows in one transaction, then deletes its blobs. The workout itself is kept and can be shared again. |
 | `PUT` / `DELETE /api/v1/posts/{id}/like` | Idempotent like/unlike. Returns `{liked, like_count}`. |
 | `GET /api/v1/posts/{id}/comments?limit=50&after_id=` | Oldest first. Limit 1–100. Pass `next_after_id` as `after_id` for the next page. |

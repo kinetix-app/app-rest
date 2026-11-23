@@ -50,8 +50,11 @@ from app.features.posts.schemas import (
     PostResponse,
     WorkoutDetail,
     WorkoutExercise,
+    WorkoutOptions,
     WorkoutSet,
     WorkoutSummary,
+    WorkoutTemplate,
+    WorkoutTemplateExercise,
 )
 from app.features.social.service import friend_ids_query
 from app.features.training.models import (
@@ -60,6 +63,7 @@ from app.features.training.models import (
     session_exercise,
     training_session,
 )
+from app.features.training.schemas import ExerciseResponse
 from app.features.training.service import selectable_exercise
 from app.features.training.units import display_weight
 
@@ -347,13 +351,65 @@ async def get_post_workout(session: AsyncSession, user_id: int, post_id: int) ->
     return WorkoutDetail(**summary.model_dump(), detailed_exercises=list(exercises.values()))
 
 
+async def get_workout_template(
+    session: AsyncSession, user_id: int, post_id: int
+) -> WorkoutTemplate:
+    workout = await get_post_workout(session, user_id, post_id)
+    ids = {item.exercise_id for item in workout.detailed_exercises}
+    rows = await session.execute(
+        sa.select(exercise).where(exercise.c.id.in_(ids), selectable_exercise(user_id))
+    )
+    selectable = {row["id"]: ExerciseResponse.model_validate(row) for row in rows.mappings()}
+    exercises = []
+    skipped = []
+    for item in workout.detailed_exercises:
+        if item.exercise_id in selectable:
+            exercises.append(
+                WorkoutTemplateExercise(exercise=selectable[item.exercise_id], sets=item.sets)
+            )
+        else:
+            skipped.append(item.name)
+    return WorkoutTemplate(title=workout.title, exercises=exercises, skipped_exercises=skipped)
+
+
+def _owned_completed_workout_ids(user_id: int) -> sa.Select:
+    return sa.select(training_session.c.id).where(
+        training_session.c.user_id == user_id,
+        training_session.c.ended_at.is_not(None),
+    )
+
+
+async def list_workout_options(
+    session: AsyncSession, user_id: int, selected_session_id: int | None
+) -> WorkoutOptions:
+    eligible = _owned_completed_workout_ids(user_id).where(
+        ~sa.exists().where(post.c.training_session_id == training_session.c.id)
+    )
+    recent = list(
+        await session.scalars(
+            eligible.order_by(
+                training_session.c.ended_at.desc(), training_session.c.id.desc()
+            ).limit(5)
+        )
+    )
+    selected = selected_session_id
+    if selected is not None and selected not in recent:
+        selected = await session.scalar(eligible.where(training_session.c.id == selected))
+    ids = set(recent)
+    if selected is not None:
+        ids.add(selected)
+    summaries = await _workouts(session, ids)
+    return WorkoutOptions(
+        items=[summaries[session_id] for session_id in recent if session_id in summaries],
+        selected=summaries.get(selected) if selected is not None else None,
+    )
+
+
 async def _require_shareable(
     session: AsyncSession, user_id: int, training_session_id: int, *, lock: bool
 ) -> None:
-    query = sa.select(training_session.c.id).where(
-        training_session.c.id == training_session_id,
-        training_session.c.user_id == user_id,
-        training_session.c.ended_at.is_not(None),
+    query = _owned_completed_workout_ids(user_id).where(
+        training_session.c.id == training_session_id
     )
     if lock:
         # Serializes concurrent shares of the same workout; the UNIQUE column is the backstop.

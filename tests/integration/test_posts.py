@@ -294,6 +294,123 @@ async def test_post_workout_details_follow_post_visibility(posts_api):
     assert (await api.client.get(free_path, auth=api.alice)).status_code == 404
 
 
+async def test_workout_template_obeys_post_and_exercise_access(posts_api):
+    api = posts_api
+    async with api.sessions.begin() as session:
+        private_id = await session.scalar(
+            exercise.insert()
+            .values(name="Private move", activity_type="gym", user_id=api.alice_id)
+            .returning(exercise.c.id)
+        )
+        await session.execute(
+            exercise.update()
+            .where(exercise.c.id == api.catalogue[1])
+            .values(activity_type="cardio")
+        )
+    gym = {"reps": 8, "weight_kg": "90.50"}
+    cardio = {"duration_seconds": 180, "distance_km": "0.75"}
+    response = await api.client.post(
+        "/api/v1/sessions",
+        auth=api.alice,
+        json={
+            "client_session_id": str(uuid4()),
+            "started_at": "2026-11-09T16:00:00Z",
+            "ended_at": "2026-11-09T16:45:00Z",
+            "exercises": [
+                {"exercise_id": api.catalogue[1], "sets": [cardio]},
+                {"exercise_id": private_id, "sets": [gym]},
+                {"exercise_id": api.catalogue[0], "sets": [gym]},
+            ],
+        },
+    )
+    assert response.status_code == 201, response.text
+    created = await share(api, api.alice, response.json()["id"], visibility="FRIENDS")
+    assert created.status_code == 201, created.text
+    path = f"{POSTS}/{created.json()['id']}/workout-template"
+    assert (await api.client.get(path, auth=api.bob)).status_code == 404
+    assert (await api.client.get(path)).status_code == 401
+    for auth, name in ((api.alice, "Alice"), (api.bob, "Bob")):
+        profile = await api.client.patch(
+            "/api/v1/me/profile", auth=auth, json={"display_name": name}
+        )
+        assert profile.status_code == 200
+    assert (
+        await api.client.post(
+            "/api/v1/friends/requests", auth=api.alice, json={"user_id": api.bob_id}
+        )
+    ).status_code == 200
+    assert (
+        await api.client.post(f"/api/v1/friends/requests/{api.alice_id}/accept", auth=api.bob)
+    ).status_code == 200
+    owner = (await api.client.get(path, auth=api.alice)).json()
+    assert [x["exercise"]["id"] for x in owner["exercises"]] == [
+        api.catalogue[1],
+        private_id,
+        api.catalogue[0],
+    ]
+    assert owner["skipped_exercises"] == []
+    friend = (await api.client.get(path, auth=api.bob)).json()
+    assert friend["title"] == created.json()["workout"]["title"]
+    assert [x["exercise"]["id"] for x in friend["exercises"]] == [
+        api.catalogue[1],
+        api.catalogue[0],
+    ]
+    assert friend["skipped_exercises"] == ["Private move"]
+    cardio_set, gym_set = [x["sets"][0] for x in friend["exercises"]]
+    assert (cardio_set["duration_seconds"], cardio_set["distance_km"]) == (180, "0.75")
+    assert (gym_set["reps"], gym_set["weight_kg"]) == (8, "90.50")
+
+    async with api.sessions.begin() as session:
+        await session.execute(
+            exercise.update()
+            .where(exercise.c.id.in_(api.catalogue))
+            .values(user_id=api.alice_id, source="manual")
+        )
+    unavailable = (await api.client.get(path, auth=api.bob)).json()
+    assert unavailable["exercises"] == []
+    assert unavailable["skipped_exercises"] == ["Catalogue 1", "Private move", "Catalogue 0"]
+    assert (
+        await api.client.delete(f"{POSTS}/{created.json()['id']}", auth=api.alice)
+    ).status_code == 204
+    assert (await api.client.get(path, auth=api.bob)).status_code == 404
+
+    free = await api.client.post(POSTS, auth=api.alice, data={"caption": "Rest day"})
+    assert free.status_code == 201
+    assert (
+        await api.client.get(f"{POSTS}/{free.json()['id']}/workout-template", auth=api.alice)
+    ).status_code == 404
+
+
+async def test_workout_options_are_recent_owned_and_unshared(posts_api):
+    api = posts_api
+    owned = [await workout(api, api.alice) for _ in range(7)]
+    other = await workout(api, api.bob)
+    async with api.sessions.begin() as session:
+        await session.execute(
+            training_session.update()
+            .where(training_session.c.id == owned[1])
+            .values(ended_at=datetime(2026, 11, 10, tzinfo=UTC))
+        )
+    assert (await share(api, api.alice, owned[-1])).status_code == 201
+    path = f"{POSTS}/workout-options"
+    result = await api.client.get(path, auth=api.alice, params={"selected_session_id": owned[0]})
+    assert result.status_code == 200, result.text
+    payload = result.json()
+    assert [item["session_id"] for item in payload["items"]] == [owned[i] for i in (1, 5, 4, 3, 2)]
+    assert payload["selected"]["session_id"] == owned[0]
+    for excluded in (owned[-1], other, 9999):
+        inaccessible = await api.client.get(
+            path, auth=api.alice, params={"selected_session_id": excluded}
+        )
+        assert inaccessible.json()["selected"] is None
+    assert (await api.client.get(path, auth=api.carol)).json() == {"items": [], "selected": None}
+    assert (
+        await api.client.get(path, auth=api.alice, params={"selected_session_id": 0})
+    ).status_code == 422
+    assert (await share(api, api.alice, owned[0])).status_code == 201
+    assert (await share(api, api.alice, owned[0])).status_code == 409
+
+
 async def test_share_validation_leaves_no_posts_or_blobs(posts_api):
     api = posts_api
     session_id = await workout(api, api.alice)
@@ -355,7 +472,8 @@ async def test_post_caption_and_description_are_independent(posts_api):
         assert response.status_code == 201
         body = response.json()
         visible = (await api.client.get(f"{POSTS}/{body['id']}", auth=api.bob)).json()
-        assert (visible["caption"], visible["description"]) == expected
+        assert visible["caption"] == expected[0]
+        assert visible["description"] == expected[1]
         assert visible["text"] == visible["description"]
 
 

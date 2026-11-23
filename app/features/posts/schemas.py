@@ -6,6 +6,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.features.posts.models import FileType, PostType, PostVisibility
+from app.features.training.schemas import ExerciseResponse
 
 MAX_POST_CAPTION = 160
 MAX_POST_DESCRIPTION = 2200
@@ -36,6 +37,11 @@ class WorkoutSummary(BaseModel):
     exercises: list[str]
 
 
+class WorkoutOptions(BaseModel):
+    items: list[WorkoutSummary]
+    selected: WorkoutSummary | None
+
+
 class WorkoutSet(BaseModel):
     set_number: int
     reps: int | None
@@ -55,6 +61,17 @@ class WorkoutDetail(WorkoutSummary):
     """Everything the author recorded in the shared workout, in the order it was done."""
 
     detailed_exercises: list[WorkoutExercise]
+
+
+class WorkoutTemplateExercise(BaseModel):
+    exercise: ExerciseResponse
+    sets: list[WorkoutSet]
+
+
+class WorkoutTemplate(BaseModel):
+    title: str
+    exercises: list[WorkoutTemplateExercise]
+    skipped_exercises: list[str]
 
 
 class PostMedia(BaseModel):
