@@ -472,7 +472,8 @@ async def test_post_caption_and_description_are_independent(posts_api):
         assert response.status_code == 201
         body = response.json()
         visible = (await api.client.get(f"{POSTS}/{body['id']}", auth=api.bob)).json()
-        assert (visible["caption"], visible["description"]) == expected
+        assert visible["caption"] == expected[0]
+        assert visible["description"] == expected[1]
         assert visible["text"] == visible["description"]
 
 
