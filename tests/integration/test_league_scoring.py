@@ -3,6 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
@@ -10,6 +11,7 @@ import pytest
 import sqlalchemy as sa
 
 from app.features.accounts.models import Profile
+from app.features.leagues import scoring
 from app.features.leagues.models import league, league_member, league_score
 from app.features.leagues.scoring import credit_completed_session
 from app.features.training.models import exercise, exercise_set, session_exercise, training_session
@@ -18,8 +20,11 @@ from tests.integration.test_league_membership import league_api  # noqa: F401, F
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
 
-async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
+async def test_completion_hook_and_retry_snapshot(league_api, monkeypatch):  # noqa: F811
     client, sessions = league_api
+    now = datetime(2026, 11, 18, 12, tzinfo=UTC)
+    # Keep completion and scoring in the same round regardless of the CI start time.
+    monkeypatch.setattr(scoring, "datetime", SimpleNamespace(now=lambda _timezone: now))
     auth = httpx.BasicAuth("alice", "password")
     user = (await client.get("/api/v1/me", auth=auth)).json()["id"]
     created = (
@@ -38,9 +43,8 @@ async def test_completion_hook_and_retry_snapshot(league_api):  # noqa: F811
         await session.execute(
             league_member.update()
             .where(league_member.c.league_id == created["id"])
-            .values(joined_at=datetime.now(UTC) - timedelta(hours=2))
+            .values(joined_at=now - timedelta(hours=2))
         )
-    now = datetime.now(UTC)
     payload = {
         "client_session_id": str(uuid4()),
         "started_at": (now - timedelta(hours=1)).isoformat(),
