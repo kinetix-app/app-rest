@@ -422,6 +422,22 @@ async def _require_shareable(
         raise WorkoutAlreadyShared
 
 
+async def _upload_post_images(
+    storage: BlobStorage | None, user_id: int, normalized: list[bytes]
+) -> list[str]:
+    names: list[str] = []
+    if normalized:
+        assert storage is not None
+        try:
+            for data in normalized:
+                names.append(f"{blob_prefix(user_id)}{uuid4().hex}.jpg")
+                await storage.upload_post_media(names[-1], data)
+        except STORAGE_ERRORS:
+            await cleanup_media(storage, names, user_id)
+            raise MediaStorageUnavailable from None
+    return names
+
+
 async def create_post(
     session: AsyncSession,
     user_id: int,
@@ -446,16 +462,7 @@ async def create_post(
         except BaseException:
             await session.rollback()
             raise
-    names: list[str] = []
-    if normalized:
-        assert storage is not None
-        try:
-            for data in normalized:
-                names.append(f"{blob_prefix(user_id)}{uuid4().hex}.jpg")
-                await storage.upload_post_media(names[-1], data)
-        except STORAGE_ERRORS:
-            await cleanup_media(storage, names, user_id)
-            raise MediaStorageUnavailable from None
+    names = await _upload_post_images(storage, user_id, normalized)
     try:
         if training_session_id is not None:
             await _require_shareable(session, user_id, training_session_id, lock=True)

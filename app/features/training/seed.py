@@ -51,23 +51,22 @@ async def seed_exercises(
         )
     # A single catalogue transaction follows all storage operations: failures leave
     # existing records intact. Content-addressed unreferenced blobs are safe to retry.
-    async with sessions() as session:
-        async with session.begin():
-            for values in rows:
-                statement = insert(exercise).values(**values)
-                await session.execute(
-                    statement.on_conflict_do_update(
-                        index_elements=[exercise.c.source, exercise.c.external_id],
-                        index_where=sa.text(
-                            "user_id IS NULL AND external_id IS NOT NULL AND source <> 'manual'"
-                        ),
-                        set_={
-                            name: statement.excluded[name]
-                            for name in values
-                            if name not in ("source", "external_id")
-                        },
-                    )
+    async with sessions() as session, session.begin():
+        for values in rows:
+            statement = insert(exercise).values(**values)
+            await session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[exercise.c.source, exercise.c.external_id],
+                    index_where=sa.text(
+                        "user_id IS NULL AND external_id IS NOT NULL AND source <> 'manual'"
+                    ),
+                    set_={
+                        name: statement.excluded[name]
+                        for name in values
+                        if name not in ("source", "external_id")
+                    },
                 )
+            )
     return {"exercises": len(rows), "media": media_count}
 
 

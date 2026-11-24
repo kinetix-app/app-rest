@@ -97,7 +97,7 @@ async def _pair_row(session: AsyncSession, a: int, b: int, *, lock: bool = False
 async def relationships(
     session: AsyncSession, user_id: int, others: list[int]
 ) -> dict[int, Relationship]:
-    result: dict[int, Relationship] = {other: "none" for other in others}
+    result: dict[int, Relationship] = dict.fromkeys(others, "none")
     if user_id in result:
         result[user_id] = "self"
     rows = (

@@ -12,15 +12,17 @@ class FriendshipStatus(StrEnum):
     ACCEPTED = "ACCEPTED"
 
 
+_USER_ID = "users.id"
+
 friendship = sa.Table(
     "friendship",
     Base.metadata,
-    sa.Column("user_low_id", sa.BigInteger(), sa.ForeignKey("users.id"), primary_key=True),
-    sa.Column("user_high_id", sa.BigInteger(), sa.ForeignKey("users.id"), primary_key=True),
+    sa.Column("user_low_id", sa.BigInteger(), sa.ForeignKey(_USER_ID), primary_key=True),
+    sa.Column("user_high_id", sa.BigInteger(), sa.ForeignKey(_USER_ID), primary_key=True),
     sa.Column(
         "requester_id",
         sa.BigInteger(),
-        sa.ForeignKey("users.id"),
+        sa.ForeignKey(_USER_ID),
         nullable=False,
         comment="Account that sent the request; one of the pair",
     ),

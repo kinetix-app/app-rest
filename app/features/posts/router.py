@@ -163,7 +163,10 @@ async def get_workout_template(
 @router.delete(
     "/{post_id}",
     status_code=204,
-    responses={**NOT_FOUND, 403: {"description": "Only the author can delete a post"}},
+    responses={
+        404: {"description": POST_NOT_FOUND},
+        403: {"description": "Only the author can delete a post"},
+    },
 )
 async def delete_post(
     post_id: ResourceId, user: CurrentUser, session: DatabaseSession, request: Request
