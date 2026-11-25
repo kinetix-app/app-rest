@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.security.http import HTTPBase
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.health import router as health_router
@@ -15,6 +16,7 @@ from app.api.router import api_router
 from app.core.auth.clerk import ClerkVerifier
 from app.core.config import Settings
 from app.core.logging import configure_logging
+from app.core.security import RejectNulCharacters, SecurityHeaders, database_busy
 from app.core.storage.azure import BlobStorage
 from app.core.upload_limit import UploadLimit
 from app.db.session import create_database_engine
@@ -64,6 +66,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "Accept"],
         expose_headers=["WWW-Authenticate"],
     )
+    # NUL cannot be stored in PostgreSQL text; reject it as invalid input (OWASP ZAP finding).
+    application.add_middleware(RejectNulCharacters)
+    # Outermost of these so CORS, size-limit and validation responses carry the headers too.
+    application.add_middleware(SecurityHeaders, hsts=configuration.app_env == "production")
+    application.add_exception_handler(PoolTimeoutError, database_busy)
     application.include_router(health_router)
     # Declare the selected HTTP scheme for business routes. CurrentUser validates
     # the raw credentials, including UTF-8 Basic passwords and Clerk session claims.
