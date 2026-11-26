@@ -221,6 +221,23 @@ async def test_provisioning_profile_patch_and_two_account_isolation(account_clie
 
 
 @pytest.mark.anyio
+async def test_profile_language_defaults_validates_and_persists(account_client, signed_token):
+    client, _, issuer = account_client
+    alice = headers(signed_token, issuer)
+    bob = headers(signed_token, issuer, sub="user_bob", sid="sess_bob")
+    assert (await client.get("/api/v1/me", headers=alice)).json()["profile"]["language"] == "en"
+    updated = await client.patch("/api/v1/me/profile", headers=alice, json={"language": "es"})
+    assert updated.status_code == 200
+    assert updated.json()["profile"]["language"] == "es"
+    await client.patch("/api/v1/me/profile", headers=alice, json={"display_name": "Alice"})
+    for value in (None, "fr", "ES"):
+        response = await client.patch("/api/v1/me/profile", headers=alice, json={"language": value})
+        assert response.status_code == 422
+    assert (await client.get("/api/v1/me", headers=alice)).json()["profile"]["language"] == "es"
+    assert (await client.get("/api/v1/me", headers=bob)).json()["profile"]["language"] == "en"
+
+
+@pytest.mark.anyio
 async def test_invalid_tokens_create_no_accounts(account_client, signed_token):
     client, app, issuer = account_client
     async with app.state.session_factory() as session:

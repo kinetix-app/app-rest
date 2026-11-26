@@ -23,7 +23,7 @@ muscle gain. Review the weight trend, energy and training after 2–4 weeks.
 Decimal arithmetic, calories rounded half-up to whole kcal, protein half-up to
 0.01 g, fat and carbohydrate rounded down to 0.01 g; macro energy is at most
 0.04 kcal below target. Missing inputs/objective return `available=false` with
-missing fields. Automatic suggestions are restricted to adults, BMI 18.5–<40,
+missing fields. Unavailable responses also include a stable `reason_code` (`incomplete_profile`, `underage`, `measurements_need_assessment`, `missing_sex_or_activity`, or `estimate_needs_assessment`) for localized display; the existing English `reason` remains for compatibility. Available responses have a null code. Automatic suggestions are restricted to adults, BMI 18.5–<40,
 1200–5000 kcal and feasible macros (protein <=35% of energy). These are product
 eligibility bounds, not clinical thresholds or a claim that every eligible target
 is safe. Do not silently clamp or manufacture a target. Pregnancy, breastfeeding

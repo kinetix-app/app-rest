@@ -71,3 +71,37 @@ def test_all_activity_factors(activity, factor):
     result = calculate_recommendation(profile(activity_level=activity), "maintain_weight")
     assert result.activity_factor == Decimal(factor)
     assert result.maintenance_calories == Decimal("1780") * Decimal(factor)
+
+
+@pytest.mark.parametrize(
+    "changes,objective,reason_code",
+    [
+        ({}, None, "incomplete_profile"),
+        ({"age": 17}, "lose_fat", "underage"),
+        ({"weight_kg": Decimal("40")}, "lose_fat", "measurements_need_assessment"),
+        ({"sex": "unknown"}, "lose_fat", "missing_sex_or_activity"),
+        (
+            {
+                "age": 120,
+                "sex": "female",
+                "height_cm": Decimal("160"),
+                "weight_kg": Decimal("50"),
+                "activity_level": "sedentary",
+            },
+            "lose_fat",
+            "estimate_needs_assessment",
+        ),
+    ],
+)
+def test_unavailable_recommendations_expose_stable_reason_codes(changes, objective, reason_code):
+    result = calculate_recommendation(profile(**changes), objective)
+    assert result.reason_code == reason_code
+    assert result.reason
+    assert not result.available
+
+
+def test_available_recommendation_has_no_reason_code():
+    result = calculate_recommendation(profile(), "maintain_weight")
+    assert result.available
+    assert result.reason is None
+    assert result.reason_code is None

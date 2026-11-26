@@ -45,7 +45,9 @@ CREATE TABLE profiles (
     -- Values: male, female. Required for nutritional requirement estimates.
     sex VARCHAR(6),
     -- Values: sedentary, light, moderate, high, very_high.
-    activity_level VARCHAR(16)
+    activity_level VARCHAR(16),
+    -- Values: en, es.
+    language VARCHAR(2) NOT NULL DEFAULT 'en'
 );
 
 -- Selected direction, independent of physical targets and optional nutrition targets.
