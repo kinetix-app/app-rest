@@ -47,6 +47,7 @@ class Profile(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
+    language: Mapped[str] = mapped_column(String(2), server_default="en", comment="Values: en, es")
     display_name: Mapped[str | None] = mapped_column(String(100))
     timezone: Mapped[str | None] = mapped_column(String(100))
     age: Mapped[int | None] = mapped_column(Integer)

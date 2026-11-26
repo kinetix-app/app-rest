@@ -12,6 +12,7 @@ BodyMassKg = Annotated[Decimal, Field(gt=0, le=1000, decimal_places=6)]
 class ProfilePatch(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    language: Literal["en", "es"] = "en"
     display_name: str | None = Field(default=None, min_length=1, max_length=100)
     timezone: str | None = Field(default=None, min_length=1, max_length=100)
 
@@ -47,6 +48,7 @@ class ProfilePatch(BaseModel):
 class ProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    language: Literal["en", "es"]
     display_name: str | None
     timezone: str | None
     age: int | None
